@@ -15,9 +15,6 @@ dependencies = [
   "pillow>=10.0",
 ]
 
-[project.scripts]
-android-stream-monitor = "android_stream.cli:main"
-
 [dependency-groups]
 dev = [
   "pytest>=8.0",

@@ -1,7 +1,6 @@
 README.md
 pyproject.toml
 src/android_stream/__init__.py
-src/android_stream/cli.py
 src/android_stream/exceptions.py
 src/android_stream/frame_pipeline.py
 src/android_stream/frame_types.py
@@ -11,7 +10,6 @@ src/android_stream/service.py
 src/android_stream.egg-info/PKG-INFO
 src/android_stream.egg-info/SOURCES.txt
 src/android_stream.egg-info/dependency_links.txt
-src/android_stream.egg-info/entry_points.txt
 src/android_stream.egg-info/requires.txt
 src/android_stream.egg-info/top_level.txt
 src/android_stream/backends/__init__.py

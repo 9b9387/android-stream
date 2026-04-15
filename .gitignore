@@ -15,6 +15,7 @@ env/
 .coverage
 coverage.xml
 htmlcov/
+*.egg-info/
 
 # Local runtime output
 frames/
