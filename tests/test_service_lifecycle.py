@@ -86,6 +86,13 @@ def test_service_on_error_callback() -> None:
 def test_service_backend_selection_native_default() -> None:
     service = AndroidFrameService()
     assert isinstance(service._backend, ScrcpyProtoBackend)
+    assert service._backend.max_size == 0
+
+
+def test_service_max_size_passed_to_backend() -> None:
+    service = AndroidFrameService(max_size=1080)
+    assert isinstance(service._backend, ScrcpyProtoBackend)
+    assert service._backend.max_size == 1080
 
 
 def test_service_start_failure_rolls_back_state() -> None:

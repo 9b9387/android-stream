@@ -17,6 +17,7 @@ OnStateCallback = Callable[[StreamState], None]
 @dataclass(slots=True)
 class StreamConfig:
     device_serial: str | None = None
+    max_size: int = 0
     max_fps: int = 30
     bitrate: int = 8_000_000
 
@@ -26,6 +27,7 @@ class AndroidStreamSDK:
         self._config = config or StreamConfig()
         self._service = AndroidFrameService(
             device_serial=self._config.device_serial,
+            max_size=self._config.max_size,
             max_fps=self._config.max_fps,
             bitrate=self._config.bitrate,
         )

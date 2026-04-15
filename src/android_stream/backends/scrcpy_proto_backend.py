@@ -36,6 +36,7 @@ SCRCPY_SERVER_SHA256: dict[str, str] = {
 @dataclass(slots=True)
 class ScrcpyProtoBackend:
     device_serial: str | None = None
+    max_size: int = 0
     max_fps: int = 30
     bitrate: int = 8_000_000
     scrcpy_version: str = "2.4"
@@ -120,7 +121,7 @@ class ScrcpyProtoBackend:
             "com.genymobile.scrcpy.Server",
             self.scrcpy_version,
             "log_level=info",
-            "max_size=0",
+            f"max_size={self.max_size}",
             f"max_fps={self.max_fps}",
             f"video_bit_rate={self.bitrate}",
             "video_codec=h264",

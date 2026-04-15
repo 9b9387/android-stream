@@ -20,11 +20,13 @@ class AndroidFrameService:
         self,
         *,
         device_serial: str | None = None,
+        max_size: int = 0,
         max_fps: int = 30,
         bitrate: int = 8_000_000,
     ) -> None:
         self._backend = ScrcpyProtoBackend(
             device_serial=device_serial,
+            max_size=max_size,
             max_fps=max_fps,
             bitrate=bitrate,
         )

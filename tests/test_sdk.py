@@ -97,6 +97,11 @@ def test_sdk_state_and_stats_exposed() -> None:
     assert StreamState.RUNNING in states
 
 
+def test_sdk_stream_config_max_size_passed() -> None:
+    sdk = AndroidStreamSDK(StreamConfig(max_size=720))
+    assert sdk._service._backend.max_size == 720
+
+
 def test_sdk_start_idempotent_does_not_reset_first_frame_event() -> None:
     sdk = AndroidStreamSDK(StreamConfig())
     backend = FakeBackend()

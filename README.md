@@ -37,7 +37,7 @@ uv run pytest -q
 ```python
 from android_stream import AndroidStreamSDK, StreamConfig
 
-sdk = AndroidStreamSDK(StreamConfig(max_fps=30, bitrate=8_000_000))
+sdk = AndroidStreamSDK(StreamConfig(max_size=1080, max_fps=30, bitrate=8_000_000))
 
 def on_frame(packet):
     print(packet.width, packet.height)
@@ -51,7 +51,8 @@ sdk.stop()
 
 ## SDK API（简版）
 
-- `StreamConfig(device_serial=None, max_fps=30, bitrate=8_000_000)`
+- `StreamConfig(device_serial=None, max_size=0, max_fps=30, bitrate=8_000_000)`
+- `max_size`：最长边尺寸限制（例如 `max_size=1080`；`0` 表示不限制）
 - `AndroidStreamSDK.start()/stop()`
 - `AndroidStreamSDK.on_frame(callback)`
 - `AndroidStreamSDK.on_error(callback)`
