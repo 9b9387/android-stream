@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "android-stream"
+version = "0.1.0"
+description = "A scrcpy-like Python SDK for realtime Android frame streaming."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "adbutils>=2.11",
+  "av>=14",
+  "numpy>=1.24",
+  "pillow>=10.0",
+]
+
+[project.scripts]
+android-stream-monitor = "android_stream.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

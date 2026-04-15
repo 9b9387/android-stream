@@ -1,0 +1,2 @@
+[console_scripts]
+android-stream-monitor = android_stream.cli:main

@@ -1,0 +1,4 @@
+adbutils>=2.11
+av>=14
+numpy>=1.24
+pillow>=10.0
