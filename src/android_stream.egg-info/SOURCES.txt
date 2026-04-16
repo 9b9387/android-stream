@@ -7,6 +7,7 @@ src/android_stream/frame_types.py
 src/android_stream/models.py
 src/android_stream/sdk.py
 src/android_stream/service.py
+src/android_stream/web.py
 src/android_stream.egg-info/PKG-INFO
 src/android_stream.egg-info/SOURCES.txt
 src/android_stream.egg-info/dependency_links.txt
@@ -21,3 +22,4 @@ tests/test_frame_pipeline.py
 tests/test_scrcpy_proto_backend.py
 tests/test_sdk.py
 tests/test_service_lifecycle.py
+tests/test_web.py

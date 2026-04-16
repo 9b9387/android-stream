@@ -9,6 +9,7 @@
 - 帧转 JPEG / base64
 - 按需保存截图
 - 状态与统计（`state`、`stats`）
+- 内置 Web 推流服务（FastAPI + WebSocket）
 
 ## 前置条件
 
@@ -62,3 +63,58 @@ sdk.stop()
 - `AndroidStreamSDK.save_latest_frame(path, quality=90)`
 - `AndroidStreamSDK.stats`
 - `create_client(config)`
+
+## Web 推流服务
+
+项目内置了一个最小 Web 服务，后端会把每一帧编码为 JPEG 并通过 WebSocket 推送给浏览器。
+默认会以 `max_size=720` 请求设备视频流，避免网页显示过大。
+
+启动服务：
+
+```bash
+uv run uvicorn android_stream.web:app --host 0.0.0.0 --port 8000
+```
+
+接口说明：
+
+- `GET /health`：查看当前流状态与统计
+- `WS /ws/stream`：二进制 JPEG 帧流（每条消息是一张 JPEG）
+
+前端最小示例：
+
+```html
+<img id="screen" />
+<script>
+  const img = document.getElementById("screen");
+  const ws = new WebSocket("ws://127.0.0.1:8000/ws/stream");
+  ws.binaryType = "arraybuffer";
+  ws.onmessage = (event) => {
+    const blob = new Blob([event.data], { type: "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+    img.src = url;
+    img.onload = () => URL.revokeObjectURL(url);
+  };
+</script>
+```
+
+### 本地演示页面（开箱即用）
+
+项目已提供示例页面：`web_demo/index.html`。
+
+1) 启动推流后端：
+
+```bash
+uv run uvicorn android_stream.web:app --host 0.0.0.0 --port 8000
+```
+
+2) 在项目目录启动静态文件服务：
+
+```bash
+uv run python -m http.server 8080
+```
+
+3) 浏览器打开：
+
+- `http://127.0.0.1:8080/web_demo/index.html`
+
+页面默认连接 `ws://127.0.0.1:8000/ws/stream`，支持手动断开/重连并显示实时 FPS。

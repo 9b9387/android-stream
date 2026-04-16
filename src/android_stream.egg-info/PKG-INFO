@@ -6,8 +6,11 @@ Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: adbutils>=2.11
 Requires-Dist: av>=14
+Requires-Dist: fastapi>=0.111
 Requires-Dist: numpy>=1.24
 Requires-Dist: pillow>=10.0
+Requires-Dist: uvicorn>=0.30
+Requires-Dist: websockets>=16.0
 
 # android-stream
 
@@ -20,6 +23,7 @@ Requires-Dist: pillow>=10.0
 - 帧转 JPEG / base64
 - 按需保存截图
 - 状态与统计（`state`、`stats`）
+- 内置 Web 推流服务（FastAPI + WebSocket）
 
 ## 前置条件
 
@@ -48,7 +52,7 @@ uv run pytest -q
 ```python
 from android_stream import AndroidStreamSDK, StreamConfig
 
-sdk = AndroidStreamSDK(StreamConfig(max_fps=30, bitrate=8_000_000))
+sdk = AndroidStreamSDK(StreamConfig(max_size=1080, max_fps=30, bitrate=8_000_000))
 
 def on_frame(packet):
     print(packet.width, packet.height)
@@ -62,7 +66,8 @@ sdk.stop()
 
 ## SDK API（简版）
 
-- `StreamConfig(device_serial=None, max_fps=30, bitrate=8_000_000)`
+- `StreamConfig(device_serial=None, max_size=0, max_fps=30, bitrate=8_000_000)`
+- `max_size`：最长边尺寸限制（例如 `max_size=1080`；`0` 表示不限制）
 - `AndroidStreamSDK.start()/stop()`
 - `AndroidStreamSDK.on_frame(callback)`
 - `AndroidStreamSDK.on_error(callback)`
@@ -73,25 +78,56 @@ sdk.stop()
 - `AndroidStreamSDK.stats`
 - `create_client(config)`
 
-## 常见问题
+## Web 推流服务
 
-### 启动后没有截图
+项目内置了一个最小 Web 服务，后端会把每一帧编码为 JPEG 并通过 WebSocket 推送给浏览器。
 
-先检查：
+启动服务：
 
 ```bash
-adb devices
+uv run uvicorn android_stream.web:app --host 0.0.0.0 --port 8000
 ```
 
-再用最小 SDK 脚本确认能拿到首帧：
+接口说明：
 
-```python
-from android_stream import AndroidStreamSDK
-sdk = AndroidStreamSDK()
-sdk.start()
-frame = sdk.wait_for_first_frame(timeout_s=5.0)
-print(frame.width, frame.height)
-sdk.stop()
+- `GET /health`：查看当前流状态与统计
+- `WS /ws/stream`：二进制 JPEG 帧流（每条消息是一张 JPEG）
+
+前端最小示例：
+
+```html
+<img id="screen" />
+<script>
+  const img = document.getElementById("screen");
+  const ws = new WebSocket("ws://127.0.0.1:8000/ws/stream");
+  ws.binaryType = "arraybuffer";
+  ws.onmessage = (event) => {
+    const blob = new Blob([event.data], { type: "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+    img.src = url;
+    img.onload = () => URL.revokeObjectURL(url);
+  };
+</script>
 ```
 
-若没有 `frame=` 日志，通常是设备未正确授权或未连接。
+### 本地演示页面（开箱即用）
+
+项目已提供示例页面：`web_demo/index.html`。
+
+1) 启动推流后端：
+
+```bash
+uv run uvicorn android_stream.web:app --host 0.0.0.0 --port 8000
+```
+
+2) 在项目目录启动静态文件服务：
+
+```bash
+uv run python -m http.server 8080
+```
+
+3) 浏览器打开：
+
+- `http://127.0.0.1:8080/web_demo/index.html`
+
+页面默认连接 `ws://127.0.0.1:8000/ws/stream`，支持手动断开/重连并显示实时 FPS。

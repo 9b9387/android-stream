@@ -11,6 +11,7 @@ from .exceptions import (
 from .frame_types import FramePacket
 from .models import StreamState, StreamStats
 from .sdk import AndroidStreamSDK, StreamConfig, create_client
+from .web import WebStreamConfig, create_web_app
 
 __all__ = [
     "AndroidStreamError",
@@ -26,5 +27,7 @@ __all__ = [
     "StreamStartError",
     "StreamState",
     "StreamStats",
+    "WebStreamConfig",
     "create_client",
+    "create_web_app",
 ]

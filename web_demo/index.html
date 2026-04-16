@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>android-stream demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0b0f17;
+        color: #d6deeb;
+      }
+      .container {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      input,
+      button {
+        font-size: 14px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #2a3441;
+        background: #121a27;
+        color: #d6deeb;
+      }
+      button {
+        cursor: pointer;
+      }
+      .status {
+        margin-bottom: 12px;
+        font-size: 13px;
+        color: #9fb0c0;
+      }
+      .frame-wrap {
+        border: 1px solid #2a3441;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #05080f;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: min(100%, 420px);
+        max-height: 72vh;
+        margin: 0 auto;
+      }
+      img {
+        width: auto;
+        max-width: 100%;
+        max-height: 72vh;
+        object-fit: contain;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>Android 实时画面</h2>
+      <div class="toolbar">
+        <input
+          id="ws-url"
+          type="text"
+          value="ws://127.0.0.1:8000/ws/stream"
+          style="min-width: 340px"
+        />
+        <button id="connect">连接</button>
+        <button id="disconnect">断开</button>
+      </div>
+      <div id="status" class="status">状态: idle</div>
+      <div class="frame-wrap">
+        <img id="screen" alt="android stream" />
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const imgEl = document.getElementById("screen");
+      const wsUrlEl = document.getElementById("ws-url");
+      const connectBtn = document.getElementById("connect");
+      const disconnectBtn = document.getElementById("disconnect");
+
+      let ws = null;
+      let reconnectTimer = null;
+      let previousObjectUrl = null;
+      let frameCount = 0;
+      let fps = 0;
+      let fpsTimer = null;
+      let shouldReconnect = true;
+      let latestFrameWidth = "-";
+      let latestFrameHeight = "-";
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function renderStatus(prefix) {
+        setStatus(
+          `状态: ${prefix}, fps=${fps}, frame=${latestFrameWidth}x${latestFrameHeight}`
+        );
+      }
+
+      function startFpsTicker() {
+        stopFpsTicker();
+        fpsTimer = setInterval(() => {
+          fps = frameCount;
+          frameCount = 0;
+        }, 1000);
+      }
+
+      function stopFpsTicker() {
+        if (fpsTimer) {
+          clearInterval(fpsTimer);
+          fpsTimer = null;
+        }
+      }
+
+      function cleanupImageUrl() {
+        if (previousObjectUrl) {
+          URL.revokeObjectURL(previousObjectUrl);
+          previousObjectUrl = null;
+        }
+      }
+
+      function disconnect(manual = true) {
+        if (manual) {
+          shouldReconnect = false;
+        }
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+        stopFpsTicker();
+        cleanupImageUrl();
+        if (manual) {
+          setStatus("状态: disconnected");
+        }
+      }
+
+      function connect() {
+        disconnect(false);
+        shouldReconnect = true;
+        frameCount = 0;
+        fps = 0;
+        startFpsTicker();
+
+        const wsUrl = wsUrlEl.value.trim();
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          renderStatus("connected");
+        };
+
+        ws.onmessage = (event) => {
+          frameCount += 1;
+          const blob = new Blob([event.data], { type: "image/jpeg" });
+          const objectUrl = URL.createObjectURL(blob);
+          imgEl.src = objectUrl;
+          cleanupImageUrl();
+          previousObjectUrl = objectUrl;
+          renderStatus("streaming");
+        };
+
+        ws.onclose = () => {
+          ws = null;
+          setStatus("状态: closed, retrying...");
+          stopFpsTicker();
+          if (shouldReconnect) {
+            reconnectTimer = setTimeout(connect, 1000);
+          }
+        };
+
+        ws.onerror = () => {
+          setStatus("状态: error");
+        };
+      }
+
+      imgEl.onload = () => {
+        latestFrameWidth = imgEl.naturalWidth || "-";
+        latestFrameHeight = imgEl.naturalHeight || "-";
+        renderStatus("streaming");
+      };
+
+      connectBtn.addEventListener("click", connect);
+      disconnectBtn.addEventListener("click", () => disconnect(true));
+    </script>
+  </body>
+  </html>
