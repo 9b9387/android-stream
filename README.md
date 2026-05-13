@@ -118,3 +118,11 @@ uv run python -m http.server 8080
 - `http://127.0.0.1:8080/web_demo/index.html`
 
 页面默认连接 `ws://127.0.0.1:8000/ws/stream`，支持手动断开/重连并显示实时 FPS。
+
+录屏由服务端完成，默认保存到 `.data/recordings`；也可以通过环境变量配置：
+
+```bash
+OMNI_FLOW_RECORDINGS_DIR=/path/to/recordings uv run uvicorn android_stream.web:app --host 0.0.0.0 --port 8000
+```
+
+演示页面提供开始、结束、状态查询和下载最近一次录屏文件的按钮。

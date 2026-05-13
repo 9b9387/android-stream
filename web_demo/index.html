@@ -26,6 +26,26 @@
         align-items: center;
         margin-bottom: 12px;
       }
+      .panel {
+        border: 1px solid #2a3441;
+        border-radius: 12px;
+        background: #101823;
+        margin-bottom: 12px;
+        padding: 12px;
+      }
+      .panel-title {
+        color: #f5f7fa;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        margin-bottom: 10px;
+      }
+      .hint {
+        color: #7f91a3;
+        font-size: 12px;
+        line-height: 1.5;
+        margin-top: -4px;
+      }
       input,
       button {
         font-size: 14px;
@@ -37,6 +57,16 @@
       }
       button {
         cursor: pointer;
+      }
+      button.primary {
+        background: #1d4ed8;
+        border-color: #2563eb;
+        color: #eff6ff;
+      }
+      button.danger {
+        background: #7f1d1d;
+        border-color: #991b1b;
+        color: #fee2e2;
       }
       .status {
         margin-bottom: 12px;
@@ -55,7 +85,7 @@
         aspect-ratio: 1 / 1;
         margin: 0 auto;
       }
-      img {
+      video {
         width: auto;
         max-width: 100%;
         max-height: 100%;
@@ -67,32 +97,56 @@
   <body>
     <div class="container">
       <h2>Android 实时画面</h2>
-      <div class="toolbar">
-        <input
-          id="ws-url"
-          type="text"
-          value="ws://127.0.0.1:8000/ws/stream"
-          style="min-width: 340px"
-        />
-        <button id="connect">连接</button>
-        <button id="disconnect">断开</button>
+      <div class="panel">
+        <div class="panel-title">推流连接</div>
+        <div class="toolbar">
+          <input
+            id="ws-url"
+            type="text"
+            value="http://127.0.0.1:8000"
+            style="min-width: 340px"
+          />
+          <button id="connect">连接</button>
+          <button id="disconnect">断开</button>
+          <button id="snapshot-download">下载截图</button>
+        </div>
+        <div id="status" class="status">状态: idle</div>
       </div>
-      <div id="status" class="status">状态: idle</div>
+
+      <div class="panel">
+        <div class="panel-title">录屏控制</div>
+        <div class="toolbar">
+          <button id="recording-start" class="primary">开始录屏</button>
+          <button id="recording-stop" class="danger">结束录屏</button>
+          <button id="recording-status">状态</button>
+          <button id="recording-download">下载最近录屏</button>
+        </div>
+        <div id="recording-state" class="status">录屏: idle</div>
+        <div class="hint">
+          录屏文件由后端保存，目录通过服务端配置决定。结束录屏后可从这里下载最近一次生成的视频。
+        </div>
+      </div>
+
       <div class="frame-wrap">
-        <img id="screen" alt="android stream" />
+        <video id="screen-video" autoplay playsinline muted></video>
       </div>
     </div>
 
     <script>
       const statusEl = document.getElementById("status");
-      const imgEl = document.getElementById("screen");
+      const videoEl = document.getElementById("screen-video");
       const wsUrlEl = document.getElementById("ws-url");
       const connectBtn = document.getElementById("connect");
       const disconnectBtn = document.getElementById("disconnect");
+      const snapshotDownloadBtn = document.getElementById("snapshot-download");
+      const recordingStartBtn = document.getElementById("recording-start");
+      const recordingStopBtn = document.getElementById("recording-stop");
+      const recordingStatusBtn = document.getElementById("recording-status");
+      const recordingDownloadBtn = document.getElementById("recording-download");
+      const recordingStateEl = document.getElementById("recording-state");
 
-      let ws = null;
+      let pc = null;
       let reconnectTimer = null;
-      let previousObjectUrl = null;
       let frameCount = 0;
       let fps = 0;
       let fpsTimer = null;
@@ -110,6 +164,60 @@
         );
       }
 
+      function setRecordingStatus(text) {
+        recordingStateEl.textContent = `录屏: ${text}`;
+      }
+
+      function apiBaseUrl() {
+        const raw = wsUrlEl.value.trim();
+        const url = new URL(raw.includes("://") ? raw : `http://${raw}`);
+        if (url.protocol === "ws:") {
+          url.protocol = "http:";
+        } else if (url.protocol === "wss:") {
+          url.protocol = "https:";
+        }
+        if (url.pathname === "/ws/stream") {
+          url.pathname = "";
+        }
+        url.search = "";
+        url.hash = "";
+        return url.toString().replace(/\/$/, "");
+      }
+
+      async function requestJson(path, options = {}) {
+        const headers = options.body ? { "Content-Type": "application/json" } : {};
+        const response = await fetch(`${apiBaseUrl()}${path}`, {
+          headers,
+          ...options,
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || response.statusText);
+        }
+        return data;
+      }
+
+      function formatRecordingResult(data) {
+        if (!data.active && !data.path) {
+          return "inactive";
+        }
+        const parts = [
+          data.active ? "recording" : "stopped",
+          `frames=${data.frame_count ?? 0}`,
+          `duration=${data.duration_ms ?? 0}ms`,
+        ];
+        if (data.output_dir) {
+          parts.push(`dir=${data.output_dir}`);
+        }
+        if (data.path) {
+          parts.push(`path=${data.path}`);
+        }
+        if (data.download_url) {
+          parts.push("download=ready");
+        }
+        return parts.join(", ");
+      }
+
       function startFpsTicker() {
         stopFpsTicker();
         fpsTimer = setInterval(() => {
@@ -125,11 +233,17 @@
         }
       }
 
-      function cleanupImageUrl() {
-        if (previousObjectUrl) {
-          URL.revokeObjectURL(previousObjectUrl);
-          previousObjectUrl = null;
+      function startVideoFrameCounter() {
+        if (!("requestVideoFrameCallback" in videoEl)) {
+          return;
         }
+        const tick = () => {
+          frameCount += 1;
+          if (pc) {
+            videoEl.requestVideoFrameCallback(tick);
+          }
+        };
+        videoEl.requestVideoFrameCallback(tick);
       }
 
       function disconnect(manual = true) {
@@ -140,64 +254,140 @@
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
-        if (ws) {
-          ws.close();
-          ws = null;
+        if (pc) {
+          pc.close();
+          pc = null;
         }
+        videoEl.srcObject = null;
         stopFpsTicker();
-        cleanupImageUrl();
         if (manual) {
           setStatus("状态: disconnected");
         }
       }
 
-      function connect() {
+      async function connect() {
         disconnect(false);
         shouldReconnect = true;
         frameCount = 0;
         fps = 0;
         startFpsTicker();
+        startVideoFrameCounter();
 
-        const wsUrl = wsUrlEl.value.trim();
-        ws = new WebSocket(wsUrl);
-        ws.binaryType = "arraybuffer";
+        try {
+          pc = new RTCPeerConnection();
+          pc.addTransceiver("video", { direction: "recvonly" });
 
-        ws.onopen = () => {
+          pc.ontrack = (event) => {
+            videoEl.srcObject = event.streams[0];
+            videoEl.play().catch(() => {});
+            renderStatus("streaming");
+          };
+
+          pc.onconnectionstatechange = () => {
+            const state = pc ? pc.connectionState : "closed";
+            renderStatus(state);
+            if (["failed", "disconnected"].includes(state) && shouldReconnect) {
+              stopFpsTicker();
+              reconnectTimer = setTimeout(connect, 1000);
+            }
+          };
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          const answer = await requestJson("/webrtc/offer", {
+            method: "POST",
+            body: JSON.stringify({
+              sdp: pc.localDescription.sdp,
+              type: pc.localDescription.type,
+            }),
+          });
+          await pc.setRemoteDescription(answer);
           renderStatus("connected");
-        };
-
-        ws.onmessage = (event) => {
-          frameCount += 1;
-          const blob = new Blob([event.data], { type: "image/jpeg" });
-          const objectUrl = URL.createObjectURL(blob);
-          imgEl.src = objectUrl;
-          cleanupImageUrl();
-          previousObjectUrl = objectUrl;
-          renderStatus("streaming");
-        };
-
-        ws.onclose = () => {
-          ws = null;
-          setStatus("状态: closed, retrying...");
+        } catch (error) {
+          setStatus(`状态: connect failed, ${error.message}`);
           stopFpsTicker();
           if (shouldReconnect) {
             reconnectTimer = setTimeout(connect, 1000);
           }
-        };
-
-        ws.onerror = () => {
-          setStatus("状态: error");
-        };
+        }
       }
 
-      imgEl.onload = () => {
-        latestFrameWidth = imgEl.naturalWidth || "-";
-        latestFrameHeight = imgEl.naturalHeight || "-";
+      videoEl.onloadedmetadata = () => {
+        latestFrameWidth = videoEl.videoWidth || "-";
+        latestFrameHeight = videoEl.videoHeight || "-";
         renderStatus("streaming");
       };
 
+      function snapshotFilename() {
+        const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 17);
+        return `snapshot-${stamp}.jpg`;
+      }
+
+      async function downloadSnapshot() {
+        try {
+          const response = await fetch(`${apiBaseUrl()}/snapshot?quality=90`);
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || data.message || response.statusText);
+          }
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = objectUrl;
+          link.download = snapshotFilename();
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(objectUrl);
+        } catch (error) {
+          setStatus(`状态: snapshot failed, ${error.message}`);
+        }
+      }
+
+      async function startRecording() {
+        try {
+          const sessionId = `demo-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+          const data = await requestJson("/recordings/start", {
+            method: "POST",
+            body: JSON.stringify({
+              session_id: sessionId,
+            }),
+          });
+          setRecordingStatus(formatRecordingResult({ ...data, active: true }));
+        } catch (error) {
+          setRecordingStatus(`start failed: ${error.message}`);
+        }
+      }
+
+      async function stopRecording() {
+        try {
+          const data = await requestJson("/recordings/stop", { method: "POST" });
+          setRecordingStatus(formatRecordingResult({ ...data, active: false }));
+        } catch (error) {
+          setRecordingStatus(`stop failed: ${error.message}`);
+        }
+      }
+
+      async function refreshRecordingStatus() {
+        try {
+          const data = await requestJson("/recordings/status");
+          setRecordingStatus(formatRecordingResult(data));
+        } catch (error) {
+          setRecordingStatus(`status failed: ${error.message}`);
+        }
+      }
+
+      function downloadLatestRecording() {
+        window.location.href = `${apiBaseUrl()}/recordings/download/latest`;
+      }
+
       connectBtn.addEventListener("click", connect);
       disconnectBtn.addEventListener("click", () => disconnect(true));
+      snapshotDownloadBtn.addEventListener("click", downloadSnapshot);
+      recordingStartBtn.addEventListener("click", startRecording);
+      recordingStopBtn.addEventListener("click", stopRecording);
+      recordingStatusBtn.addEventListener("click", refreshRecordingStatus);
+      recordingDownloadBtn.addEventListener("click", downloadLatestRecording);
     </script>
   </body>
   </html>

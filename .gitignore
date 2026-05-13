@@ -25,3 +25,4 @@ tmp-*.jpg
 .DS_Store
 .idea/
 .vscode/
+.data/
