@@ -197,8 +197,11 @@ class AndroidFrameService:
         with self._lock:
             self._running = False
             state_callbacks = self._set_state_locked(StreamState.ERROR)
-        self._emit_state_callbacks(state_callbacks, StreamState.ERROR)
+        # Emit the concrete backend error before the ERROR state. The web layer
+        # closes websocket clients on ERROR, so reversing this order can hide the
+        # root cause from Node/browser diagnostics.
         self._handle_error(exc)
+        self._emit_state_callbacks(state_callbacks, StreamState.ERROR)
 
     def _set_state_locked(self, new_state: StreamState) -> list[OnStateCallback]:
         if self._state == new_state:
