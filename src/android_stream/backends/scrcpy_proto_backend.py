@@ -113,9 +113,10 @@ class ScrcpyProtoBackend:
         return server_path
 
     def _deploy_server(self, server_jar: Path) -> None:
-        self._device.sync.push(str(server_jar), "/data/local/tmp/scrcpy-server.jar")
+        server_jar_device_path = f"/data/local/tmp/scrcpy-server-v{self.scrcpy_version}.jar"
+        self._device.sync.push(str(server_jar), server_jar_device_path)
         commands = [
-            "CLASSPATH=/data/local/tmp/scrcpy-server.jar",
+            f"CLASSPATH={server_jar_device_path}",
             "app_process",
             "/",
             "com.genymobile.scrcpy.Server",
@@ -126,6 +127,7 @@ class ScrcpyProtoBackend:
             f"video_bit_rate={self.bitrate}",
             "video_codec=h264",
             "tunnel_forward=true",
+            "scid=00000001",
             "send_frame_meta=false",
             "control=true",
             "audio=false",
@@ -143,15 +145,28 @@ class ScrcpyProtoBackend:
         last_error: Exception | None = None
         while time.time() < deadline:
             try:
-                self._video_socket = self._device.create_connection(Network.LOCAL_ABSTRACT, "scrcpy")
+                # If we get "device not found", it might be a transient ADB server issue.
+                # We try to create the connection.
+                self._video_socket = self._device.create_connection(Network.LOCAL_ABSTRACT, "scrcpy_00000001")
                 break
             except Exception as exc:
                 last_error = exc
-                time.sleep(0.1)
+                # If device is reported not found, maybe wait a bit longer or log it.
+                if "device" in str(exc).lower() and "not found" in str(exc).lower():
+                    # Check if device is still in device_list
+                    try:
+                        serials = [d.serial for d in adb.device_list()]
+                        if self._device.serial not in serials:
+                            # Device actually gone? Try to find it again if we didn't have a fixed serial.
+                            if not self.device_serial and serials:
+                                self._device = adb.device(serial=serials[0])
+                    except Exception:
+                        pass
+                time.sleep(0.5)
         else:
             raise HandshakeError(f"failed to connect scrcpy video socket: {last_error}")
 
-        self._control_socket = self._device.create_connection(Network.LOCAL_ABSTRACT, "scrcpy")
+        self._control_socket = self._device.create_connection(Network.LOCAL_ABSTRACT, "scrcpy_00000001")
         dummy_byte = self._recv_exact(self._video_socket, 1)
         if dummy_byte != b"\x00":
             raise HandshakeError("invalid scrcpy handshake dummy byte")

@@ -91,7 +91,7 @@ class ScrcpyV4Backend:
     control: bool = True
     video_codec: VideoCodec = VideoCodec.H264
     audio_codec: AudioCodec = AudioCodec.OPUS
-    socket_name: str = "scrcpy"
+    socket_name: str = "scrcpy_00000004"
     connection_timeout_s: float = 8.0
     deploy_timeout_s: float = 5.0
     download_timeout_s: float = 30.0
@@ -189,15 +189,17 @@ class ScrcpyV4Backend:
     # ------------------------------------------------------------- internals
     def _spawn_server(self, jar: Path) -> None:
         device = self._device
-        device.sync.push(str(jar), "/data/local/tmp/scrcpy-server.jar")
+        server_jar_device_path = f"/data/local/tmp/scrcpy-server-v{SCRCPY_V4_VERSION}.jar"
+        device.sync.push(str(jar), server_jar_device_path)
         commands = [
-            "CLASSPATH=/data/local/tmp/scrcpy-server.jar",
+            f"CLASSPATH={server_jar_device_path}",
             "app_process",
             "/",
             "com.genymobile.scrcpy.Server",
             SCRCPY_V4_VERSION,
             "log_level=info",
             "tunnel_forward=true",
+            "scid=00000004",
             f"video={'true' if self.video else 'false'}",
             f"audio={'true' if self.audio else 'false'}",
             f"control={'true' if self.control else 'false'}",
@@ -260,7 +262,17 @@ class ScrcpyV4Backend:
                     break
                 except Exception as exc:
                     last_error = exc
-                    time.sleep(0.1)
+                    # If device is reported not found, maybe wait a bit longer or log it.
+                    if "device" in str(exc).lower() and "not found" in str(exc).lower():
+                        try:
+                            serials = [d.serial for d in adb.device_list()]
+                            if self._device.serial not in serials:
+                                # Device actually gone? Try to find it again if we didn't have a fixed serial.
+                                if not self.device_serial and serials:
+                                    self._device = adb.device(serial=serials[0])
+                        except Exception:
+                            pass
+                    time.sleep(0.5)
             else:
                 for s in sockets.values():
                     try:

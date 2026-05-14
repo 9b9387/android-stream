@@ -19,9 +19,16 @@ src/android_stream/backends/base.py
 src/android_stream/backends/scrcpy_proto_backend.py
 src/android_stream/examples/__init__.py
 src/android_stream/examples/basic_monitor.py
+src/android_stream/scrcpy_v4/__init__.py
+src/android_stream/scrcpy_v4/backend.py
+src/android_stream/scrcpy_v4/protocol.py
+src/android_stream/scrcpy_v4/service.py
+src/android_stream/scrcpy_v4/web.py
 tests/test_frame_pipeline.py
 tests/test_recording.py
 tests/test_scrcpy_proto_backend.py
+tests/test_scrcpy_v4_protocol.py
+tests/test_scrcpy_v4_web.py
 tests/test_sdk.py
 tests/test_service_lifecycle.py
 tests/test_web.py
