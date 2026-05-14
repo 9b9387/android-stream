@@ -21,6 +21,8 @@ from pydantic import BaseModel, Field
 from android_stream.frame_types import FramePacket
 from android_stream.models import StreamState
 from android_stream.recording import RecordingManager, RecordingResult
+from android_stream.scrcpy_v4 import ScrcpyV4Config, ScrcpyV4Service
+from android_stream.scrcpy_v4.web import create_scrcpy_v4_router
 from android_stream.sdk import AndroidStreamSDK, StreamConfig
 
 log = logging.getLogger(__name__)
@@ -35,6 +37,12 @@ class WebStreamConfig:
     wait_timeout_s: float = 10.0
     recording_output_dir: Path | None = None
     start_stream_on_lifespan: bool = True
+    # scrcpy v4 (direct H.264/Opus + control) bridge. Disabled by default to
+    # keep the legacy SDK pipeline (and its tests) untouched; opt in by
+    # setting ``scrcpy_v4_enabled=True`` or via ``ANDROID_STREAM_SCRCPY_V4=1``.
+    scrcpy_v4_enabled: bool = False
+    scrcpy_v4_config: ScrcpyV4Config = field(default_factory=ScrcpyV4Config)
+    scrcpy_v4_start_on_lifespan: bool = True
 
 
 class FrameBroadcaster:
@@ -174,6 +182,13 @@ def create_web_app(config: WebStreamConfig | None = None) -> FastAPI:
     supervisor_lock = asyncio.Lock()
     consecutive_failures = 0
 
+    scrcpy_v4_enabled = app_config.scrcpy_v4_enabled or os.getenv(
+        "ANDROID_STREAM_SCRCPY_V4", ""
+    ).lower() in {"1", "true", "yes"}
+    scrcpy_v4_service: ScrcpyV4Service | None = (
+        ScrcpyV4Service(app_config.scrcpy_v4_config) if scrcpy_v4_enabled else None
+    )
+
     unsubscribe_frame = None
     unsubscribe_error = None
     unsubscribe_state = None
@@ -280,6 +295,13 @@ def create_web_app(config: WebStreamConfig | None = None) -> FastAPI:
         unsubscribe_state = sdk.on_state_change(on_state_change)
         if app_config.start_stream_on_lifespan:
             sdk.start()
+        if scrcpy_v4_service is not None:
+            scrcpy_v4_service.bind_loop(loop)
+            if app_config.scrcpy_v4_start_on_lifespan:
+                try:
+                    scrcpy_v4_service.start()
+                except Exception:
+                    log.exception("scrcpy v4 service failed to start")
         try:
             yield
         finally:
@@ -288,6 +310,8 @@ def create_web_app(config: WebStreamConfig | None = None) -> FastAPI:
             await close_all_peer_connections()
             if app_config.start_stream_on_lifespan:
                 sdk.stop()
+            if scrcpy_v4_service is not None:
+                scrcpy_v4_service.stop()
             if unsubscribe_frame is not None:
                 unsubscribe_frame()
                 unsubscribe_frame = None
@@ -298,9 +322,10 @@ def create_web_app(config: WebStreamConfig | None = None) -> FastAPI:
                 unsubscribe_state()
                 unsubscribe_state = None
 
-    app = FastAPI(title="android-stream-web", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="android-stream-web", version="0.2.0", lifespan=lifespan)
     app.state.latest_recording_path = None
     app.state.snapshot_cache = snapshot_cache
+    app.state.scrcpy_v4_service = scrcpy_v4_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -310,6 +335,9 @@ def create_web_app(config: WebStreamConfig | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["content-type"],
     )
+
+    if scrcpy_v4_service is not None:
+        app.include_router(create_scrcpy_v4_router(scrcpy_v4_service))
 
     @app.get("/health")
     async def health() -> dict[str, Any]:

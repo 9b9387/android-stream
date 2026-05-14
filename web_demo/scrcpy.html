@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>scrcpy v4.0 Web Client</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0f17;
+        --panel: #101823;
+        --panel-border: #2a3441;
+        --text: #d6deeb;
+        --muted: #7f91a3;
+        --accent: #2563eb;
+        --accent-text: #eff6ff;
+        --danger: #b91c1c;
+        --warn: #d97706;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 16px;
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      @media (max-width: 960px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      .panel {
+        border: 1px solid var(--panel-border);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 14px;
+      }
+      .panel + .panel {
+        margin-top: 12px;
+      }
+      .panel-title {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #f5f7fa;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .row + .row {
+        margin-top: 8px;
+      }
+      input[type="text"],
+      input[type="number"] {
+        font-size: 13px;
+        padding: 7px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        background: #121a27;
+        color: var(--text);
+        min-width: 160px;
+      }
+      button {
+        font-size: 13px;
+        padding: 7px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        background: #121a27;
+        color: var(--text);
+        cursor: pointer;
+        transition: background 80ms ease;
+      }
+      button:hover {
+        background: #1a2435;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-text);
+      }
+      button.warn {
+        background: var(--warn);
+        border-color: var(--warn);
+        color: #1f2937;
+      }
+      button.danger {
+        background: var(--danger);
+        border-color: var(--danger);
+        color: #fee2e2;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .status-line {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+      .stage {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      .device-frame {
+        position: relative;
+        background: #000;
+        border: 1px solid var(--panel-border);
+        border-radius: 14px;
+        overflow: hidden;
+        max-width: 100%;
+        max-height: 75vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        touch-action: none;
+        user-select: none;
+        cursor: crosshair;
+      }
+      canvas {
+        display: block;
+        max-width: 100%;
+        max-height: 75vh;
+        object-fit: contain;
+      }
+      .device-overlay {
+        position: absolute;
+        inset: 0;
+      }
+      .toast {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 23, 42, 0.92);
+        color: #fff;
+        padding: 8px 14px;
+        font-size: 13px;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 200ms ease;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+      .stat-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .stat-grid .v {
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+      }
+      .legend {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #1a2435;
+        color: var(--text);
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <main class="stage">
+        <div class="panel" style="width: 100%">
+          <div class="panel-title">连接</div>
+          <div class="row">
+            <input id="server-url" type="text" value="ws://127.0.0.1:8000" />
+            <label class="legend"
+              ><input id="audio-enabled" type="checkbox" checked /> 启用音频</label
+            >
+            <button id="btn-connect" class="primary">连接</button>
+            <button id="btn-disconnect">断开</button>
+          </div>
+          <div id="connection-status" class="status-line">状态：未连接</div>
+        </div>
+        <div class="device-frame" id="device-frame">
+          <canvas id="screen" width="720" height="1280"></canvas>
+          <div class="device-overlay" id="overlay"></div>
+        </div>
+        <div class="row" style="justify-content: center">
+          <button id="btn-back">返回</button>
+          <button id="btn-home" class="primary">主屏</button>
+          <button id="btn-recents">最近任务</button>
+          <button id="btn-power">电源</button>
+          <button id="btn-rotate">旋转</button>
+          <button id="btn-volume-up">音量+</button>
+          <button id="btn-volume-down">音量-</button>
+          <button id="btn-screen-on" class="warn">点亮屏幕</button>
+          <button id="btn-screen-off" class="warn">熄屏</button>
+        </div>
+      </main>
+      <aside>
+        <div class="panel">
+          <div class="panel-title">设备</div>
+          <div class="stat-grid" id="device-info">
+            <div>名称</div><div class="v" id="info-name">-</div>
+            <div>分辨率</div><div class="v" id="info-resolution">-</div>
+            <div>视频编解码</div><div class="v" id="info-vcodec">-</div>
+            <div>音频编解码</div><div class="v" id="info-acodec">-</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">解码统计</div>
+          <div class="stat-grid">
+            <div>视频帧</div><div class="v" id="stats-vframes">0</div>
+            <div>FPS</div><div class="v" id="stats-fps">0</div>
+            <div>音频包</div><div class="v" id="stats-apackets">0</div>
+            <div>WS bytes</div><div class="v" id="stats-bytes">0</div>
+            <div>解码器</div><div class="v" id="stats-decoder">未配置</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">键盘 / 文本注入</div>
+          <div class="row">
+            <input id="text-input" type="text" placeholder="按回车注入" />
+            <button id="btn-send-text" class="primary">发送</button>
+          </div>
+          <div class="legend" style="margin-top: 8px">
+            键盘焦点在屏幕区域时，按键会以 <span class="pill">keycode</span>
+            形式发送到 Android。文本输入框允许批量注入字符串（含中文等）。
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">说明</div>
+          <div class="legend">
+            ① 后端必须启用 scrcpy v4 桥接：设置环境变量
+            <span class="pill">ANDROID_STREAM_SCRCPY_V4=1</span>
+            后启动 uvicorn。<br />② 视频走浏览器原生 WebCodecs 硬解码
+            (H.264)。需要 Chrome/Edge 94+ / Safari 16.4+ / Firefox 130+。<br />③
+            鼠标 / 触摸事件实时映射到设备坐标；多指触摸支持 PointerEvent。
+          </div>
+        </div>
+      </aside>
+    </div>
+    <div id="toast" class="toast"></div>
+    <script type="module">
+      // ----------------------- 常量 -----------------------
+      const HEADER_SIZE = 16;
+      const KIND_VIDEO = 1;
+      const KIND_AUDIO = 2;
+      const KIND_SESSION = 3;
+      const FLAG_CONFIG = 0x01;
+      const FLAG_KEY_FRAME = 0x02;
+
+      // Android KeyEvent codes we use directly.
+      const AKEYCODE = {
+        BACK: 4,
+        HOME: 3,
+        APP_SWITCH: 187,
+        VOLUME_UP: 24,
+        VOLUME_DOWN: 25,
+        POWER: 26,
+        ENTER: 66,
+        TAB: 61,
+        DEL: 67,
+        ARROW_UP: 19,
+        ARROW_DOWN: 20,
+        ARROW_LEFT: 21,
+        ARROW_RIGHT: 22,
+      };
+
+      const ACTION = { DOWN: 0, UP: 1, MOVE: 2 };
+      const BUTTON_PRIMARY = 1;
+
+      // ----------------------- DOM -----------------------
+      const els = {
+        serverUrl: document.getElementById("server-url"),
+        audioEnabled: document.getElementById("audio-enabled"),
+        connect: document.getElementById("btn-connect"),
+        disconnect: document.getElementById("btn-disconnect"),
+        canvas: document.getElementById("screen"),
+        overlay: document.getElementById("overlay"),
+        deviceFrame: document.getElementById("device-frame"),
+        connectionStatus: document.getElementById("connection-status"),
+        infoName: document.getElementById("info-name"),
+        infoResolution: document.getElementById("info-resolution"),
+        infoVCodec: document.getElementById("info-vcodec"),
+        infoACodec: document.getElementById("info-acodec"),
+        statsVFrames: document.getElementById("stats-vframes"),
+        statsFps: document.getElementById("stats-fps"),
+        statsAPackets: document.getElementById("stats-apackets"),
+        statsBytes: document.getElementById("stats-bytes"),
+        statsDecoder: document.getElementById("stats-decoder"),
+        textInput: document.getElementById("text-input"),
+        sendText: document.getElementById("btn-send-text"),
+        toast: document.getElementById("toast"),
+      };
+
+      const canvas = els.canvas;
+      const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+
+      let ws = null;
+      let videoDecoder = null;
+      let audioDecoder = null;
+      let audioCtx = null;
+      let audioPlayHead = 0; // upcoming AudioContext start time
+      let videoConfigured = false;
+      let pendingFirstKeyFrame = true;
+      let videoSize = { width: 0, height: 0 };
+      let lastSpsPps = null; // Uint8Array
+      let stats = { videoFrames: 0, audioPackets: 0, bytes: 0 };
+      let fpsCounter = { count: 0, lastTick: performance.now(), value: 0 };
+
+      // ----------------------- helpers -----------------------
+      function showToast(msg) {
+        els.toast.textContent = msg;
+        els.toast.classList.add("show");
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => els.toast.classList.remove("show"), 1600);
+      }
+
+      function setStatus(text) {
+        els.connectionStatus.textContent = `状态：${text}`;
+      }
+
+      function statsTick() {
+        const now = performance.now();
+        const elapsed = now - fpsCounter.lastTick;
+        if (elapsed >= 500) {
+          fpsCounter.value = (fpsCounter.count * 1000) / elapsed;
+          fpsCounter.count = 0;
+          fpsCounter.lastTick = now;
+          els.statsFps.textContent = fpsCounter.value.toFixed(1);
+        }
+        els.statsVFrames.textContent = stats.videoFrames;
+        els.statsAPackets.textContent = stats.audioPackets;
+        els.statsBytes.textContent = formatBytes(stats.bytes);
+      }
+      setInterval(statsTick, 250);
+
+      function formatBytes(n) {
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+        return `${(n / 1024 / 1024).toFixed(2)} MB`;
+      }
+
+      function buildWsUrl(base, path) {
+        const url = new URL(base, window.location.href);
+        if (url.protocol === "http:") url.protocol = "ws:";
+        else if (url.protocol === "https:") url.protocol = "wss:";
+        url.pathname = path;
+        url.search = els.audioEnabled.checked ? "" : "?audio=0";
+        return url.toString();
+      }
+
+      function sendControl(payload) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify(payload));
+      }
+
+      // ----------------------- WebCodecs - 视频 -----------------------
+      function isAnnexBStartCode(buf, offset) {
+        return (
+          (buf[offset] === 0 &&
+            buf[offset + 1] === 0 &&
+            buf[offset + 2] === 0 &&
+            buf[offset + 3] === 1) ||
+          (buf[offset] === 0 && buf[offset + 1] === 0 && buf[offset + 2] === 1)
+        );
+      }
+
+      function* iterateAnnexBNalus(buf) {
+        const len = buf.byteLength;
+        let i = 0;
+        while (i < len) {
+          if (i + 4 <= len && isAnnexBStartCode(buf, i)) {
+            const startCodeLen = buf[i + 2] === 1 ? 3 : 4;
+            const nalStart = i + startCodeLen;
+            let nalEnd = len;
+            for (let j = nalStart; j < len - 2; j++) {
+              if (
+                buf[j] === 0 &&
+                buf[j + 1] === 0 &&
+                (buf[j + 2] === 1 ||
+                  (buf[j + 2] === 0 && j + 3 < len && buf[j + 3] === 1))
+              ) {
+                nalEnd = j;
+                break;
+              }
+            }
+            yield buf.subarray(nalStart, nalEnd);
+            i = nalEnd;
+          } else {
+            i++;
+          }
+        }
+      }
+
+      function buildAvcCodecString(spsBytes) {
+        if (spsBytes.length < 4) return "avc1.42E01E";
+        const profile = spsBytes[1];
+        const profileCompat = spsBytes[2];
+        const level = spsBytes[3];
+        const hex = (n) => n.toString(16).padStart(2, "0");
+        return `avc1.${hex(profile)}${hex(profileCompat)}${hex(level)}`;
+      }
+
+      function findSpsAndPps(annexBBuf) {
+        let sps = null;
+        let pps = null;
+        for (const nalu of iterateAnnexBNalus(annexBBuf)) {
+          if (nalu.length === 0) continue;
+          const nalType = nalu[0] & 0x1f;
+          if (nalType === 7 && !sps) sps = nalu;
+          else if (nalType === 8 && !pps) pps = nalu;
+          if (sps && pps) break;
+        }
+        return { sps, pps };
+      }
+
+      function ensureVideoDecoder(configBuf) {
+        const { sps } = findSpsAndPps(configBuf);
+        if (!sps) {
+          throw new Error("config packet does not contain SPS");
+        }
+        const codec = buildAvcCodecString(sps);
+        // Recreate the decoder if codec or canvas size changed.
+        if (videoDecoder && videoDecoder.state === "configured") {
+          if (videoDecoder._codec === codec) {
+            return;
+          }
+          try {
+            videoDecoder.close();
+          } catch (_) {}
+        }
+        videoDecoder = new VideoDecoder({
+          output: (frame) => {
+            try {
+              if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+                canvas.width = frame.displayWidth;
+                canvas.height = frame.displayHeight;
+              }
+              ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+              stats.videoFrames += 1;
+              fpsCounter.count += 1;
+            } finally {
+              frame.close();
+            }
+          },
+          error: (err) => {
+            console.error("VideoDecoder error", err);
+            els.statsDecoder.textContent = `error: ${err.message}`;
+            videoConfigured = false;
+            pendingFirstKeyFrame = true;
+            // Force a key frame request.
+            sendControl({ type: "reset_video" });
+          },
+        });
+        videoDecoder.configure({
+          codec,
+          optimizeForLatency: true,
+          hardwareAcceleration: "prefer-hardware",
+        });
+        videoDecoder._codec = codec;
+        videoConfigured = true;
+        pendingFirstKeyFrame = true;
+        lastSpsPps = configBuf.slice();
+        els.statsDecoder.textContent = `${codec}`;
+      }
+
+      function decodeVideoChunk(payload, ptsUs, keyFrame) {
+        if (!videoConfigured || !videoDecoder) return;
+        if (pendingFirstKeyFrame) {
+          if (!keyFrame) {
+            return; // wait for an IDR before feeding the decoder
+          }
+          pendingFirstKeyFrame = false;
+        }
+        // Prepend cached SPS/PPS to every key frame so the decoder always has
+        // valid extradata, even if we joined mid-stream.
+        let chunkData = payload;
+        if (keyFrame && lastSpsPps) {
+          const concat = new Uint8Array(lastSpsPps.length + payload.length);
+          concat.set(lastSpsPps, 0);
+          concat.set(payload, lastSpsPps.length);
+          chunkData = concat;
+        }
+        try {
+          videoDecoder.decode(
+            new EncodedVideoChunk({
+              type: keyFrame ? "key" : "delta",
+              timestamp: Number(ptsUs),
+              data: chunkData,
+            }),
+          );
+        } catch (err) {
+          console.warn("decode failed", err);
+        }
+      }
+
+      // ----------------------- WebCodecs - 音频 -----------------------
+      function ensureAudioDecoder(configBuf) {
+        if (!els.audioEnabled.checked) return;
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+            latencyHint: "interactive",
+            sampleRate: 48000,
+          });
+          audioPlayHead = audioCtx.currentTime + 0.05;
+        }
+        if (audioDecoder && audioDecoder.state === "configured") {
+          try {
+            audioDecoder.close();
+          } catch (_) {}
+        }
+        audioDecoder = new AudioDecoder({
+          output: (audioData) => playAudio(audioData),
+          error: (err) => console.error("AudioDecoder", err),
+        });
+        audioDecoder.configure({
+          codec: "opus",
+          sampleRate: 48000,
+          numberOfChannels: 2,
+          description: configBuf,
+        });
+      }
+
+      function playAudio(audioData) {
+        if (!audioCtx) return;
+        try {
+          const numChannels = audioData.numberOfChannels;
+          const numFrames = audioData.numberOfFrames;
+          const buffer = audioCtx.createBuffer(numChannels, numFrames, audioData.sampleRate);
+          for (let ch = 0; ch < numChannels; ch++) {
+            const dest = buffer.getChannelData(ch);
+            audioData.copyTo(dest, { planeIndex: ch, format: "f32-planar" });
+          }
+          const src = audioCtx.createBufferSource();
+          src.buffer = buffer;
+          src.connect(audioCtx.destination);
+          // Re-anchor if we drifted (e.g. tab was suspended).
+          if (audioPlayHead < audioCtx.currentTime + 0.005) {
+            audioPlayHead = audioCtx.currentTime + 0.02;
+          }
+          src.start(audioPlayHead);
+          audioPlayHead += buffer.duration;
+        } finally {
+          audioData.close();
+        }
+      }
+
+      function decodeAudioChunk(payload, ptsUs, isConfig) {
+        if (!els.audioEnabled.checked) return;
+        if (isConfig) {
+          ensureAudioDecoder(payload);
+          return;
+        }
+        if (!audioDecoder || audioDecoder.state !== "configured") return;
+        try {
+          audioDecoder.decode(
+            new EncodedAudioChunk({
+              type: "key",
+              timestamp: Number(ptsUs),
+              data: payload,
+            }),
+          );
+        } catch (err) {
+          console.warn("audio decode failed", err);
+        }
+      }
+
+      // ----------------------- WebSocket -----------------------
+      function handleBinary(buffer) {
+        const dv = new DataView(buffer);
+        const kind = dv.getUint8(0);
+        const flags = dv.getUint8(1);
+        const size = dv.getUint32(4);
+        const ptsHigh = dv.getUint32(8);
+        const ptsLow = dv.getUint32(12);
+        stats.bytes += buffer.byteLength;
+        if (kind === KIND_SESSION) {
+          videoSize = { width: ptsHigh, height: ptsLow };
+          els.infoResolution.textContent = `${videoSize.width}×${videoSize.height}`;
+          // A session change invalidates the current decoder; a fresh config
+          // packet will follow shortly so we just flag ourselves to wait.
+          pendingFirstKeyFrame = true;
+          return;
+        }
+        const payload = new Uint8Array(buffer, HEADER_SIZE, size);
+        const pts = BigInt(ptsHigh) * 4294967296n + BigInt(ptsLow);
+        if (kind === KIND_VIDEO) {
+          if (flags & FLAG_CONFIG) {
+            ensureVideoDecoder(payload);
+            return;
+          }
+          decodeVideoChunk(payload, pts, !!(flags & FLAG_KEY_FRAME));
+        } else if (kind === KIND_AUDIO) {
+          stats.audioPackets += 1;
+          decodeAudioChunk(payload, pts, !!(flags & FLAG_CONFIG));
+        }
+      }
+
+      function handleJsonMessage(payload) {
+        if (payload.type === "init") {
+          els.infoName.textContent = payload.device?.name || "-";
+          if (payload.device?.width && payload.device?.height) {
+            videoSize = { width: payload.device.width, height: payload.device.height };
+            els.infoResolution.textContent = `${videoSize.width}×${videoSize.height}`;
+          }
+          els.infoVCodec.textContent = payload.device?.video_codec || "-";
+          els.infoACodec.textContent = payload.device?.audio_codec || "-";
+          setStatus(`已连接 (${payload.state})`);
+        } else if (payload.type === "state") {
+          setStatus(`服务端: ${payload.state}`);
+        } else if (payload.type === "error") {
+          showToast(`后端错误: ${payload.message}`);
+        }
+      }
+
+      function connect() {
+        disconnect(false);
+        const url = buildWsUrl(els.serverUrl.value.trim(), "/ws/scrcpy");
+        setStatus(`连接 ${url} ...`);
+        ws = new WebSocket(url);
+        ws.binaryType = "arraybuffer";
+        ws.onopen = () => {
+          setStatus("已连接");
+        };
+        ws.onmessage = (event) => {
+          if (typeof event.data === "string") {
+            try {
+              handleJsonMessage(JSON.parse(event.data));
+            } catch (err) {
+              console.warn("bad JSON from server", err);
+            }
+          } else {
+            handleBinary(event.data);
+          }
+        };
+        ws.onclose = (event) => {
+          setStatus(`已断开 (${event.code})`);
+          videoConfigured = false;
+          pendingFirstKeyFrame = true;
+        };
+        ws.onerror = (err) => {
+          console.error("ws error", err);
+          setStatus("连接错误");
+        };
+      }
+
+      function disconnect(showStatus = true) {
+        if (ws) {
+          try {
+            ws.close();
+          } catch (_) {}
+          ws = null;
+        }
+        if (videoDecoder) {
+          try {
+            videoDecoder.close();
+          } catch (_) {}
+          videoDecoder = null;
+        }
+        if (audioDecoder) {
+          try {
+            audioDecoder.close();
+          } catch (_) {}
+          audioDecoder = null;
+        }
+        videoConfigured = false;
+        pendingFirstKeyFrame = true;
+        if (showStatus) setStatus("已主动断开");
+      }
+
+      // ----------------------- 触控映射 -----------------------
+      function eventToDeviceCoords(evt) {
+        const rect = els.canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return null;
+        const x = (evt.clientX - rect.left) / rect.width;
+        const y = (evt.clientY - rect.top) / rect.height;
+        const sw = videoSize.width || canvas.width;
+        const sh = videoSize.height || canvas.height;
+        return {
+          x: Math.max(0, Math.min(sw - 1, Math.round(x * sw))),
+          y: Math.max(0, Math.min(sh - 1, Math.round(y * sh))),
+          screenWidth: sw,
+          screenHeight: sh,
+        };
+      }
+
+      function pointerIdAlias(evt) {
+        if (evt.pointerType === "mouse") return "mouse";
+        // Map browser pointerId (any uint32) into a small contiguous space the
+        // server can use directly. Just clamp into a uint16 to be safe.
+        return (evt.pointerId & 0xffff).toString();
+      }
+
+      const activePointers = new Map();
+
+      els.overlay.addEventListener("pointerdown", (evt) => {
+        evt.preventDefault();
+        els.overlay.setPointerCapture(evt.pointerId);
+        const coords = eventToDeviceCoords(evt);
+        if (!coords) return;
+        const alias = pointerIdAlias(evt);
+        activePointers.set(evt.pointerId, alias);
+        sendControl({
+          type: "touch",
+          action: "down",
+          pointerId: alias,
+          ...coords,
+          buttons: BUTTON_PRIMARY,
+          actionButton: BUTTON_PRIMARY,
+          pressure: evt.pressure || 1,
+        });
+      });
+
+      els.overlay.addEventListener("pointermove", (evt) => {
+        if (!activePointers.has(evt.pointerId)) return;
+        evt.preventDefault();
+        const coords = eventToDeviceCoords(evt);
+        if (!coords) return;
+        sendControl({
+          type: "touch",
+          action: "move",
+          pointerId: activePointers.get(evt.pointerId),
+          ...coords,
+          buttons: BUTTON_PRIMARY,
+          pressure: evt.pressure || 1,
+        });
+      });
+
+      const endPointer = (evt) => {
+        if (!activePointers.has(evt.pointerId)) return;
+        evt.preventDefault();
+        const coords = eventToDeviceCoords(evt);
+        if (!coords) return;
+        const alias = activePointers.get(evt.pointerId);
+        activePointers.delete(evt.pointerId);
+        sendControl({
+          type: "touch",
+          action: "up",
+          pointerId: alias,
+          ...coords,
+          buttons: 0,
+          actionButton: BUTTON_PRIMARY,
+          pressure: 0,
+        });
+        try {
+          els.overlay.releasePointerCapture(evt.pointerId);
+        } catch (_) {}
+      };
+      els.overlay.addEventListener("pointerup", endPointer);
+      els.overlay.addEventListener("pointercancel", endPointer);
+      els.overlay.addEventListener("pointerleave", endPointer);
+
+      els.overlay.addEventListener("wheel", (evt) => {
+        evt.preventDefault();
+        const coords = eventToDeviceCoords(evt);
+        if (!coords) return;
+        sendControl({
+          type: "scroll",
+          ...coords,
+          hScroll: -evt.deltaX / 120,
+          vScroll: -evt.deltaY / 120,
+        });
+      }, { passive: false });
+
+      els.overlay.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        sendControl({ type: "back", action: "down" });
+        sendControl({ type: "back", action: "up" });
+      });
+
+      // ----------------------- 键盘 -----------------------
+      // Mapping a small subset of physical keys into Android keycodes; the
+      // rest go through inject_text below.
+      const KEY_MAP = {
+        Backspace: AKEYCODE.DEL,
+        Enter: AKEYCODE.ENTER,
+        Tab: AKEYCODE.TAB,
+        ArrowUp: AKEYCODE.ARROW_UP,
+        ArrowDown: AKEYCODE.ARROW_DOWN,
+        ArrowLeft: AKEYCODE.ARROW_LEFT,
+        ArrowRight: AKEYCODE.ARROW_RIGHT,
+      };
+
+      function isInteractiveTarget(target) {
+        return (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement
+        );
+      }
+
+      window.addEventListener("keydown", (evt) => {
+        if (isInteractiveTarget(evt.target)) return;
+        if (!ws) return;
+        const code = KEY_MAP[evt.key];
+        if (code != null) {
+          evt.preventDefault();
+          sendControl({ type: "key", action: "down", keycode: code });
+        } else if (evt.key.length === 1 && !evt.ctrlKey && !evt.metaKey) {
+          evt.preventDefault();
+          sendControl({ type: "text", text: evt.key });
+        }
+      });
+
+      window.addEventListener("keyup", (evt) => {
+        if (isInteractiveTarget(evt.target)) return;
+        if (!ws) return;
+        const code = KEY_MAP[evt.key];
+        if (code != null) {
+          evt.preventDefault();
+          sendControl({ type: "key", action: "up", keycode: code });
+        }
+      });
+
+      // ----------------------- 按钮 -----------------------
+      function injectKey(keycode) {
+        sendControl({ type: "key", action: "down", keycode });
+        sendControl({ type: "key", action: "up", keycode });
+      }
+
+      document.getElementById("btn-back").onclick = () => injectKey(AKEYCODE.BACK);
+      document.getElementById("btn-home").onclick = () => injectKey(AKEYCODE.HOME);
+      document.getElementById("btn-recents").onclick = () => injectKey(AKEYCODE.APP_SWITCH);
+      document.getElementById("btn-power").onclick = () => injectKey(AKEYCODE.POWER);
+      document.getElementById("btn-rotate").onclick = () =>
+        sendControl({ type: "rotate" });
+      document.getElementById("btn-volume-up").onclick = () => injectKey(AKEYCODE.VOLUME_UP);
+      document.getElementById("btn-volume-down").onclick = () => injectKey(AKEYCODE.VOLUME_DOWN);
+      document.getElementById("btn-screen-on").onclick = () =>
+        sendControl({ type: "set_display_power", on: true });
+      document.getElementById("btn-screen-off").onclick = () =>
+        sendControl({ type: "set_display_power", on: false });
+
+      els.sendText.onclick = () => {
+        const text = els.textInput.value;
+        if (!text) return;
+        sendControl({ type: "text", text });
+        els.textInput.value = "";
+      };
+      els.textInput.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          evt.preventDefault();
+          els.sendText.click();
+        }
+      });
+
+      els.connect.onclick = connect;
+      els.disconnect.onclick = () => disconnect(true);
+
+      // Auto-resume audio on first user interaction (browser autoplay policy).
+      document.addEventListener("click", () => {
+        if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+      }, { once: true });
+
+      if (!("VideoDecoder" in window)) {
+        showToast("当前浏览器不支持 WebCodecs，请升级到 Chrome/Edge 94+");
+      }
+    </script>
+  </body>
+</html>
