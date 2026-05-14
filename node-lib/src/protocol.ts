@@ -192,7 +192,7 @@ export function serializeControlMessage(msg: ControlMessage): Buffer {
       const buf = Buffer.alloc(32);
       buf.writeUInt8(type, 0);
       buf.writeUInt8((msg.action || 0) & 0xff, 1);
-      buf.writeBigUInt64BE(msg.pointerId || 0n, 2);
+      buf.writeBigUInt64BE(BigInt.asUintN(64, msg.pointerId || 0n), 2);
       buf.writeInt32BE(Math.floor(msg.x || 0), 10);
       buf.writeInt32BE(Math.floor(msg.y || 0), 14);
       buf.writeUInt16BE((msg.screenWidth || 0) & 0xffff, 18);
@@ -229,7 +229,7 @@ export function serializeControlMessage(msg: ControlMessage): Buffer {
       );
       const buf = Buffer.alloc(14 + textBuf.length);
       buf.writeUInt8(type, 0);
-      buf.writeBigUInt64BE(msg.sequence || 0n, 1);
+      buf.writeBigUInt64BE(BigInt.asUintN(64, msg.sequence || 0n), 1);
       buf.writeUInt8(msg.paste ? 1 : 0, 9);
       buf.writeUInt32BE(textBuf.length, 10);
       textBuf.copy(buf, 14);
