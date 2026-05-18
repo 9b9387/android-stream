@@ -1,4 +1,3 @@
-export * from "./protocol.js";
-export * from "./backend.js";
-export * from "./service.js";
-export * from "./web.js";
+export * from "./protocol/index.js";
+export * from "./backend/index.js";
+export * from "./service/index.js";

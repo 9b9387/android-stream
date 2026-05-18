@@ -1,12 +1,16 @@
 {
   "name": "android-stream-scrcpy-v4",
   "version": "0.1.0",
-  "description": "Scrcpy V4 implementation for Node.js/Electron",
+  "description": "Versioned scrcpy protocol client for Node.js/Electron",
   "type": "module",
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./websocket": {
+      "import": "./dist/websocket/index.js",
+      "types": "./dist/websocket/index.d.ts"
     }
   },
   "files": [
@@ -14,19 +18,33 @@
     "assets"
   ],
   "scripts": {
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "example:demo": "npm run build && node --loader ts-node/esm examples/demo.ts",
+    "example:server": "npm run build && node --loader ts-node/esm examples/server.ts"
   },
   "dependencies": {
-    "@devicefarmer/adbkit": "^3.2.3",
-    "express": "^5.2.1",
+    "@devicefarmer/adbkit": "^3.2.3"
+  },
+  "peerDependencies": {
     "ws": "^8.16.0"
   },
+  "peerDependenciesMeta": {
+    "ws": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "@types/express": "^5.0.6",
     "@types/node": "^20.11.0",
     "@types/ws": "^8.18.1",
+    "prettier": "^3.8.3",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.6",
+    "ws": "^8.20.1"
   }
 }
