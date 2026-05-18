@@ -11,6 +11,10 @@
     "./websocket": {
       "import": "./dist/websocket/index.js",
       "types": "./dist/websocket/index.d.ts"
+    },
+    "./snapshot": {
+      "import": "./dist/snapshot/index.js",
+      "types": "./dist/snapshot/index.d.ts"
     }
   },
   "files": [

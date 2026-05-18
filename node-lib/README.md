@@ -118,6 +118,23 @@ ANDROID_SERIAL=<device-serial> npm run example:server
 
 `ADB_SERIAL` is also supported for compatibility with existing local workflows.
 
+Enable the optional Node-side screenshot cache for the browser demo:
+
+```bash
+SNAPSHOT_ENABLED=1 SNAPSHOT_FPS=2 SNAPSHOT_JPEG_QUALITY=85 npm run example:server
+```
+
+This requires `ffmpeg` on `PATH` by default. Set `FFMPEG_PATH=/path/to/ffmpeg`
+if the binary lives elsewhere. When enabled, the demo exposes:
+
+```text
+http://localhost:8000/screenshot.jpg
+```
+
+The `scrcpy.html` page also shows a `截图` button that downloads the latest
+cached JPEG. The cache is produced from the scrcpy H.264 stream in Node; it does
+not call ADB `screencap` and does not require a browser canvas.
+
 ## Integrate The Core Library
 
 ```typescript
@@ -194,6 +211,35 @@ process.on("SIGINT", () => {
 ```
 
 The bridge sends an initial JSON `init` message, then binary media packets with a 16-byte header followed by the media payload.
+
+## Integrate The Screenshot Cache
+
+The screenshot cache is optional and imported from the `./snapshot` subpath:
+
+```typescript
+import { ScrcpyStreamService } from "android-stream-scrcpy-v4";
+import { FfmpegSnapshotCache } from "android-stream-scrcpy-v4/snapshot";
+
+const service = new ScrcpyStreamService({ videoCodec: "h264" });
+const snapshots = new FfmpegSnapshotCache(service, {
+  enabled: true,
+  fps: 2,
+  quality: 85,
+});
+
+await service.start();
+snapshots.start();
+
+const latest = snapshots.latest();
+if (latest) {
+  // latest.contentType === "image/jpeg"
+  // latest.data is a Buffer containing JPEG bytes.
+}
+```
+
+The first implementation supports H.264 input and JPEG output. The configured
+`fps` limits how often ffmpeg emits JPEG frames; ffmpeg still receives the
+continuous H.264 stream so inter-frame decoding remains correct.
 
 ## Protocol Versioning
 
