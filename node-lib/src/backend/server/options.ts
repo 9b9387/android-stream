@@ -22,18 +22,19 @@ export interface ScrcpyBackendOptions {
   control?: boolean;
   videoCodec?: VideoCodec;
   audioCodec?: AudioCodec;
+  videoEncoder?: string;
   connectionTimeoutMs?: number;
   deployTimeoutMs?: number;
   pushTimeoutMs?: number;
   serverJarPath?: string;
 }
 
-export interface NormalizedScrcpyBackendOptions extends Required<
-  Omit<ScrcpyBackendOptions, "serverJarPath">
-> {
+export interface NormalizedScrcpyBackendOptions
+  extends Required<Omit<ScrcpyBackendOptions, "serverJarPath" | "videoEncoder">> {
   protocol: ScrcpyProtocol;
   socketName: string;
   serverJarPath: string;
+  videoEncoder?: string;
 }
 
 export function normalizeBackendOptions(
@@ -58,6 +59,7 @@ export function normalizeBackendOptions(
     control: options.control !== false,
     videoCodec: options.videoCodec ?? VideoCodec.H264,
     audioCodec: options.audioCodec ?? AudioCodec.OPUS,
+    videoEncoder: options.videoEncoder,
     connectionTimeoutMs: options.connectionTimeoutMs ?? 8000,
     deployTimeoutMs: options.deployTimeoutMs ?? 5000,
     pushTimeoutMs: options.pushTimeoutMs ?? 60000,

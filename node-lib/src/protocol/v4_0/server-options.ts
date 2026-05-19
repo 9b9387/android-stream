@@ -12,6 +12,7 @@ export interface ScrcpyServerOptionInput {
   control: boolean;
   videoCodec: VideoCodec;
   audioCodec: AudioCodec;
+  videoEncoder?: string;
   maxSize: number;
   maxFps: number;
   videoBitRate: number;
@@ -30,28 +31,39 @@ export function getSocketName(scid = DEFAULT_SCRCPY_SCID): string {
 
 export function buildServerOptions(input: ScrcpyServerOptionInput): string[] {
   const scid = input.scid ?? DEFAULT_SCRCPY_SCID;
-  return [
+  const opts = [
     SCRCPY_4_0_SERVER_VERSION,
+    `scid=${(scid >>> 0).toString(16).padStart(8, "0")}`,
     `log_level=${input.logLevel ?? "info"}`,
     "tunnel_forward=true",
-    `scid=${scid.toString(16)}`,
     `video=${input.video}`,
     `audio=${input.audio}`,
     `control=${input.control}`,
-    `video_codec=${input.videoCodec}`,
-    `audio_codec=${input.audioCodec}`,
-    `max_size=${input.maxSize}`,
-    `max_fps=${input.maxFps}`,
-    `video_bit_rate=${input.videoBitRate}`,
-    `audio_bit_rate=${input.audioBitRate}`,
-    "send_device_meta=true",
-    "send_frame_meta=true",
-    "send_dummy_byte=true",
-    "send_stream_meta=true",
-    "cleanup=true",
-    "stay_awake=false",
-    "show_touches=false",
-    "power_off_on_close=false",
-    "clipboard_autosync=false",
   ];
+
+  if (input.videoCodec) {
+    opts.push(`video_codec=${input.videoCodec}`);
+  }
+  if (input.audioCodec) {
+    opts.push(`audio_codec=${input.audioCodec}`);
+  }
+  if (input.videoEncoder) {
+    opts.push(`video_encoder=${input.videoEncoder}`);
+  }
+  if (input.maxSize > 0) {
+    opts.push(`max_size=${input.maxSize}`);
+  }
+  if (input.maxFps > 0) {
+    opts.push(`max_fps=${input.maxFps}`);
+  }
+  if (input.videoBitRate > 0 && input.videoBitRate !== 8000000) {
+    opts.push(`video_bit_rate=${input.videoBitRate}`);
+  }
+  if (input.audioBitRate > 0 && input.audioBitRate !== 128000) {
+    opts.push(`audio_bit_rate=${input.audioBitRate}`);
+  }
+
+  // Other options like cleanup, send_device_meta, etc. use server-side defaults
+  // to keep the command line short and avoid Samsung-specific crashes.
+  return opts;
 }
