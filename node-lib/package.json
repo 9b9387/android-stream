@@ -1,6 +1,6 @@
 {
-  "name": "android-stream-scrcpy-v4",
-  "version": "0.1.0",
+  "name": "@9b9387/android-stream-scrcpy",
+  "version": "0.1.1",
   "description": "Versioned scrcpy protocol client for Node.js/Electron",
   "type": "module",
   "exports": {

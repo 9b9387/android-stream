@@ -1,4 +1,4 @@
-# android-stream-scrcpy-v4
+# @9b9387/android-stream-scrcpy
 
 TypeScript scrcpy client library for Node.js and Electron. It starts `scrcpy-server` through `@devicefarmer/adbkit`, reads the video/audio/control sockets, and exposes media packets as Web Standards binary types (`Uint8Array`).
 
@@ -138,7 +138,7 @@ not call ADB `screencap` and does not require a browser canvas.
 ## Integrate The Core Library
 
 ```typescript
-import { ScrcpyStreamService } from "android-stream-scrcpy-v4";
+import { ScrcpyStreamService } from "@9b9387/android-stream-scrcpy";
 
 const service = new ScrcpyStreamService({
   protocolVersion: "4.0",
@@ -173,7 +173,7 @@ import {
   ControlMessageType,
   KEY_ACTION_DOWN,
   ScrcpyStreamService,
-} from "android-stream-scrcpy-v4";
+} from "@9b9387/android-stream-scrcpy";
 
 const service = new ScrcpyStreamService();
 await service.start();
@@ -193,8 +193,8 @@ The WebSocket bridge is optional and imported from a subpath:
 
 ```typescript
 import { createServer } from "node:http";
-import { ScrcpyStreamService } from "android-stream-scrcpy-v4";
-import { ScrcpyWebSocketBridge } from "android-stream-scrcpy-v4/websocket";
+import { ScrcpyStreamService } from "@9b9387/android-stream-scrcpy";
+import { ScrcpyWebSocketBridge } from "@9b9387/android-stream-scrcpy/websocket";
 
 const service = new ScrcpyStreamService({ protocolVersion: "4.0" });
 const server = createServer();
@@ -217,8 +217,8 @@ The bridge sends an initial JSON `init` message, then binary media packets with 
 The screenshot cache is optional and imported from the `./snapshot` subpath:
 
 ```typescript
-import { ScrcpyStreamService } from "android-stream-scrcpy-v4";
-import { FfmpegSnapshotCache } from "android-stream-scrcpy-v4/snapshot";
+import { ScrcpyStreamService } from "@9b9387/android-stream-scrcpy";
+import { FfmpegSnapshotCache } from "@9b9387/android-stream-scrcpy/snapshot";
 
 const service = new ScrcpyStreamService({ videoCodec: "h264" });
 const snapshots = new FfmpegSnapshotCache(service, {

@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   FfmpegSnapshotCache,
   ScrcpyStreamService,
-} from "android-stream-scrcpy-v4";
-import { ScrcpyWebSocketBridge } from "android-stream-scrcpy-v4/websocket";
+} from "@9b9387/android-stream-scrcpy";
+import { ScrcpyWebSocketBridge } from "@9b9387/android-stream-scrcpy/websocket";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
