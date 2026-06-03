@@ -1,8 +1,10 @@
-# android-stream-scrcpy-v4
+# @9b9387/android-stream-scrcpy
 
 TypeScript scrcpy client library for Node.js and Electron. It starts `scrcpy-server` through `@devicefarmer/adbkit`, reads the video/audio/control sockets, and exposes media packets as Web Standards binary types (`Uint8Array`).
 
 The bundled protocol implementation targets scrcpy `4.0`. Protocol code is versioned so future versions, such as `4.1`, can be added side by side without rewriting the backend or service layers.
+
+> Runtime note: the root package is Node-only. Use it from a Node.js process, an Electron main process, a Next.js Node runtime route/server, or another long-lived backend process. Do not import the root package from browser code, Next.js Client Components, or Edge Runtime handlers.
 
 ## Project Structure
 
@@ -45,6 +47,10 @@ node-lib/
       scrcpy-stream-service.ts
       types.ts
       index.ts
+    snapshot/
+      ffmpeg-snapshot-cache.ts
+      types.ts
+      index.ts
     websocket/
       binary-packet.ts
       control-json.ts
@@ -59,10 +65,29 @@ node-lib/
 - `src/protocol/`: scrcpy wire protocol implementation. `core/` contains shared binary helpers and protocol interfaces; `registry.ts` selects a protocol adapter by version; `v4_0/` contains scrcpy 4.0 frame, control, device, codec, and server-option logic.
 - `src/backend/`: adbkit-only device integration. `adb/` wraps adbkit operations, `io/` contains socket reading utilities, `server/` builds and normalizes scrcpy server launch details, and `scrcpy-backend.ts` orchestrates the streaming connection.
 - `src/service/`: public stream service. It manages state, caches decoder config/session snapshots, and exposes `for await...of` media packet subscriptions.
+- `src/snapshot/`: optional Node-side screenshot cache. It pipes H.264 packets into ffmpeg and stores the latest JPEG frame.
 - `src/websocket/`: optional `ws` bridge for browser clients. It is exported from the `./websocket` subpath and is not part of the root API.
 - `examples/`: runnable examples kept outside the library build.
 
-## Install And Build
+## Install
+
+Install the package in your application:
+
+```bash
+npm install @9b9387/android-stream-scrcpy
+```
+
+Core runtime dependency is `@devicefarmer/adbkit`. The library does not call the `adb` system command directly.
+
+If your application uses the optional WebSocket bridge, install `ws` in the application:
+
+```bash
+npm install ws
+```
+
+If your application uses the optional screenshot cache, make sure `ffmpeg` is available on `PATH`, or pass `ffmpegPath` to `FfmpegSnapshotCache`.
+
+## Build From Source
 
 ```bash
 cd node-lib
@@ -70,13 +95,14 @@ npm install
 npm run build
 ```
 
-Core runtime dependency is only `@devicefarmer/adbkit`. The library does not call the `adb` system command directly.
+## Package Entrypoints
 
-If your application uses the optional WebSocket bridge, install `ws` in the application:
+- `@9b9387/android-stream-scrcpy`: Node-only service/backend API.
+- `@9b9387/android-stream-scrcpy/protocol`: protocol adapters and types. This is the safest entrypoint for code that only needs scrcpy protocol constants, codecs, and message types.
+- `@9b9387/android-stream-scrcpy/websocket`: optional Node-only `ws` bridge.
+- `@9b9387/android-stream-scrcpy/snapshot`: optional Node-only ffmpeg screenshot cache.
 
-```bash
-npm install ws
-```
+The package is ESM-only and requires Node.js 20 or newer.
 
 ## Run Examples
 
@@ -138,7 +164,7 @@ not call ADB `screencap` and does not require a browser canvas.
 ## Integrate The Core Library
 
 ```typescript
-import { ScrcpyStreamService } from "android-stream-scrcpy-v4";
+import { ScrcpyStreamService } from "@9b9387/android-stream-scrcpy";
 
 const service = new ScrcpyStreamService({
   protocolVersion: "4.0",
@@ -173,7 +199,7 @@ import {
   ControlMessageType,
   KEY_ACTION_DOWN,
   ScrcpyStreamService,
-} from "android-stream-scrcpy-v4";
+} from "@9b9387/android-stream-scrcpy";
 
 const service = new ScrcpyStreamService();
 await service.start();
@@ -193,8 +219,8 @@ The WebSocket bridge is optional and imported from a subpath:
 
 ```typescript
 import { createServer } from "node:http";
-import { ScrcpyStreamService } from "android-stream-scrcpy-v4";
-import { ScrcpyWebSocketBridge } from "android-stream-scrcpy-v4/websocket";
+import { ScrcpyStreamService } from "@9b9387/android-stream-scrcpy";
+import { ScrcpyWebSocketBridge } from "@9b9387/android-stream-scrcpy/websocket";
 
 const service = new ScrcpyStreamService({ protocolVersion: "4.0" });
 const server = createServer();
@@ -217,8 +243,8 @@ The bridge sends an initial JSON `init` message, then binary media packets with 
 The screenshot cache is optional and imported from the `./snapshot` subpath:
 
 ```typescript
-import { ScrcpyStreamService } from "android-stream-scrcpy-v4";
-import { FfmpegSnapshotCache } from "android-stream-scrcpy-v4/snapshot";
+import { ScrcpyStreamService } from "@9b9387/android-stream-scrcpy";
+import { FfmpegSnapshotCache } from "@9b9387/android-stream-scrcpy/snapshot";
 
 const service = new ScrcpyStreamService({ videoCodec: "h264" });
 const snapshots = new FfmpegSnapshotCache(service, {
@@ -240,6 +266,34 @@ if (latest) {
 The first implementation supports H.264 input and JPEG output. The configured
 `fps` limits how often ffmpeg emits JPEG frames; ffmpeg still receives the
 continuous H.264 stream so inter-frame decoding remains correct.
+
+## Next.js And Electron Usage
+
+### Next.js
+
+Use this package only from the server side of a self-hosted or long-lived Node.js runtime:
+
+```typescript
+export const runtime = "nodejs";
+
+import { ScrcpyStreamService } from "@9b9387/android-stream-scrcpy";
+```
+
+Do not import the root package from Client Components, browser bundles, Middleware,
+or Edge Runtime route handlers. The backend opens ADB sockets and long-lived media
+streams, so a custom Node.js server or separate local daemon is usually a better
+fit than a short-lived serverless function.
+
+### Electron
+
+Create and manage `ScrcpyStreamService` in the main process. Renderer processes
+should communicate with the main process through IPC or connect to the optional
+WebSocket bridge.
+
+When packaging Electron apps, make sure `assets/scrcpy-server-v4.0.jar` is copied
+as a runtime resource. If your packager moves or packs assets into an archive,
+pass an explicit `serverJarPath` to `ScrcpyStreamService`. If screenshot caching
+is enabled, also ship `ffmpeg` yourself or pass `ffmpegPath`.
 
 ## Protocol Versioning
 
@@ -266,6 +320,32 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+npm pack --dry-run
 ```
 
 End-to-end streaming requires a connected Android device. Unit tests cover protocol serialization/parsing, backend option normalization, subscriber queue behavior, and WebSocket packet encoding.
+
+## Publish
+
+Before publishing, make sure you are logged in to the npm account that owns the
+`@9b9387` scope:
+
+```bash
+npm whoami
+```
+
+Run the release checks and inspect the tarball contents:
+
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run build
+npm pack --dry-run
+```
+
+Publish the public scoped package:
+
+```bash
+npm publish --access public
+```

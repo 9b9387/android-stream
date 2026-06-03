@@ -1,12 +1,18 @@
 {
-  "name": "android-stream-scrcpy-v4",
+  "name": "@9b9387/android-stream-scrcpy",
   "version": "0.1.0",
   "description": "Versioned scrcpy protocol client for Node.js/Electron",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./protocol": {
+      "import": "./dist/protocol/index.js",
+      "types": "./dist/protocol/index.d.ts"
     },
     "./websocket": {
       "import": "./dist/websocket/index.js",
@@ -15,12 +21,18 @@
     "./snapshot": {
       "import": "./dist/snapshot/index.js",
       "types": "./dist/snapshot/index.d.ts"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "assets"
+    "assets",
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc",
@@ -28,8 +40,32 @@
     "test": "vitest run",
     "lint": "prettier --check .",
     "format": "prettier --write .",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run lint && npm run build",
     "example:demo": "npm run build && node --loader ts-node/esm examples/demo.ts",
     "example:server": "npm run build && node --loader ts-node/esm examples/server.ts"
+  },
+  "keywords": [
+    "scrcpy",
+    "android",
+    "adb",
+    "streaming",
+    "electron",
+    "nextjs",
+    "typescript"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/9b9387/android-stream.git",
+    "directory": "node-lib"
+  },
+  "bugs": {
+    "url": "https://github.com/9b9387/android-stream/issues"
+  },
+  "homepage": "https://github.com/9b9387/android-stream/tree/main/node-lib#readme",
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@devicefarmer/adbkit": "^3.2.3"
