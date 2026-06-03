@@ -1,7 +1,7 @@
 import { NormalizedScrcpyBackendOptions } from "./options.js";
 
 export function getDeviceServerPath(serverVersion: string): string {
-  return `/data/local/tmp/scrcpy-server-v${serverVersion}.jar`;
+  return "/data/local/tmp/scrcpy-server.jar";
 }
 
 export function buildServerCommand(
@@ -20,6 +20,7 @@ export function buildServerCommand(
       control: options.control,
       videoCodec: options.videoCodec,
       audioCodec: options.audioCodec,
+      videoEncoder: options.videoEncoder,
       maxSize: options.maxSize,
       maxFps: options.maxFps,
       videoBitRate: options.videoBitRate,
