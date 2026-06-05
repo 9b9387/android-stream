@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { once } from "node:events";
 import {
   MediaKind,
   MediaPacket,
   ScrcpyStreamService,
+  StreamState,
 } from "../service/index.js";
 import { VideoCodec } from "../protocol/index.js";
 import { FfmpegProcess, Snapshot, SnapshotCacheOptions } from "./types.js";
@@ -13,6 +13,11 @@ const JPEG_SOI = Buffer.from([0xff, 0xd8]);
 const JPEG_EOI = Buffer.from([0xff, 0xd9]);
 const DEFAULT_SNAPSHOT_FPS = 2;
 const DEFAULT_JPEG_QUALITY = 85;
+const DEFAULT_DRAIN_TIMEOUT_MS = 5000;
+const DEFAULT_KILL_TIMEOUT_MS = 2000;
+const DEFAULT_STALE_TIMEOUT_MS = 10000;
+const DEFAULT_MAX_STDOUT_BYTES = 16 * 1024 * 1024;
+const STALE_CHECK_INTERVAL_MS = 1000;
 
 export interface JpegExtractionResult {
   frames: Buffer<ArrayBufferLike>[];
@@ -53,6 +58,10 @@ export class FfmpegSnapshotCache extends EventEmitter {
   private readonly fps: number;
   private readonly quality: number;
   private readonly ffmpegPath: string;
+  private readonly drainTimeoutMs: number;
+  private readonly killTimeoutMs: number;
+  private readonly staleTimeoutMs: number;
+  private readonly maxStdoutBytes: number;
   private readonly spawnProcess: (
     command: string,
     args: string[],
@@ -64,6 +73,9 @@ export class FfmpegSnapshotCache extends EventEmitter {
   private stderrTail = "";
   private currentSnapshot: Snapshot | null = null;
   private running = false;
+  private staleTimer: NodeJS.Timeout | null = null;
+  private staleEmitted = false;
+  private readonly onServiceState: (state: StreamState) => void;
 
   constructor(
     private readonly service: ScrcpyStreamService,
@@ -76,12 +88,24 @@ export class FfmpegSnapshotCache extends EventEmitter {
       options.quality ?? DEFAULT_JPEG_QUALITY,
     );
     this.ffmpegPath = options.ffmpegPath ?? "ffmpeg";
+    this.drainTimeoutMs = options.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
+    this.killTimeoutMs = options.killTimeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
+    this.staleTimeoutMs = options.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS;
+    this.maxStdoutBytes = options.maxStdoutBytes ?? DEFAULT_MAX_STDOUT_BYTES;
     this.spawnProcess =
       options.spawnProcess ??
       ((command, args) =>
         spawn(command, args, {
           stdio: ["pipe", "pipe", "pipe"],
         }));
+    this.onServiceState = (state: StreamState) => {
+      // When the underlying stream stops or errors out, the subscription dries
+      // up but ffmpeg would otherwise linger as an orphan process. Tear it down
+      // so each device's ffmpeg lifetime is bounded by its service.
+      if (state === StreamState.STOPPED || state === StreamState.ERROR) {
+        this.stop();
+      }
+    };
   }
 
   start(): void {
@@ -94,6 +118,8 @@ export class FfmpegSnapshotCache extends EventEmitter {
     }
 
     this.running = true;
+    this.staleEmitted = false;
+    this.bindServiceState();
     this.process = this.spawnProcess(this.ffmpegPath, this.buildFfmpegArgs());
     this.process.stdout.on("data", (chunk: Buffer) => this.handleStdout(chunk));
     this.process.stderr.on("data", (chunk: Buffer) => {
@@ -116,6 +142,7 @@ export class FfmpegSnapshotCache extends EventEmitter {
     );
 
     this.subscription = this.service.subscribe();
+    this.startStaleWatchdog();
     void this.pumpVideoPackets();
   }
 
@@ -125,6 +152,40 @@ export class FfmpegSnapshotCache extends EventEmitter {
 
   latest(): Snapshot | null {
     return this.currentSnapshot;
+  }
+
+  /**
+   * Resolve with a snapshot, waiting up to `timeoutMs` for the first frame if
+   * the cache has not produced one yet. Lets HTTP handlers avoid both a busy
+   * 404-poll loop and an unbounded hang while ffmpeg warms up.
+   */
+  waitForFresh(timeoutMs = 3000): Promise<Snapshot> {
+    if (this.currentSnapshot) return Promise.resolve(this.currentSnapshot);
+    if (!this.running || !this.enabled) {
+      return Promise.reject(new Error("snapshot cache is not running"));
+    }
+    return new Promise<Snapshot>((resolve, reject) => {
+      const onShot = (shot: Snapshot) => {
+        cleanup();
+        resolve(shot);
+      };
+      const onError = (e: Error) => {
+        cleanup();
+        reject(e);
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`snapshot not available within ${timeoutMs}ms`));
+      }, timeoutMs);
+      timer.unref?.();
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.removeListener("snapshot", onShot);
+        this.removeListener("error", onError);
+      };
+      this.once("snapshot", onShot);
+      this.once("error", onError);
+    });
   }
 
   private buildFfmpegArgs(): string[] {
@@ -169,7 +230,7 @@ export class FfmpegSnapshotCache extends EventEmitter {
         await this.writePacket(proc, packet);
       }
     } catch (e) {
-      if (this.running) this.emit("error", e);
+      this.handlePumpError(e);
     }
   }
 
@@ -178,11 +239,47 @@ export class FfmpegSnapshotCache extends EventEmitter {
     packet: MediaPacket,
   ): Promise<void> {
     if (proc.stdin.write(packet.payload)) return;
-    await once(proc.stdin, "drain");
+    await this.waitForDrain(proc);
+  }
+
+  private waitForDrain(proc: FfmpegProcess): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const onDrain = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (e: Error) => {
+        cleanup();
+        reject(e);
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(
+          new Error(
+            `ffmpeg stdin did not drain within ${this.drainTimeoutMs}ms`,
+          ),
+        );
+      }, this.drainTimeoutMs);
+      timer.unref?.();
+      const cleanup = () => {
+        clearTimeout(timer);
+        proc.stdin.removeListener("drain", onDrain);
+        proc.stdin.removeListener("error", onError);
+      };
+      proc.stdin.once("drain", onDrain);
+      proc.stdin.once("error", onError);
+    });
   }
 
   private handleStdout(chunk: Buffer<ArrayBufferLike>): void {
     this.stdoutBuffer = Buffer.concat([this.stdoutBuffer, chunk]);
+
+    // Guard against a corrupt/headerless ffmpeg stream where no EOI ever
+    // arrives: without a cap the remainder would grow without bound.
+    if (this.stdoutBuffer.byteLength > this.maxStdoutBytes) {
+      this.stdoutBuffer = this.stdoutBuffer.subarray(-this.maxStdoutBytes);
+    }
+
     const result = extractJpegFrames(this.stdoutBuffer);
     this.stdoutBuffer = result.remainder;
 
@@ -192,6 +289,7 @@ export class FfmpegSnapshotCache extends EventEmitter {
         data: frame,
         timestampMs: Date.now(),
       };
+      this.staleEmitted = false;
       this.emit("snapshot", this.currentSnapshot);
     }
   }
@@ -208,11 +306,57 @@ export class FfmpegSnapshotCache extends EventEmitter {
     this.emit("error", e);
   }
 
+  private handlePumpError(e: unknown): void {
+    if (!this.running) return;
+    // A pump failure (e.g. stdin stalled past the drain timeout) means ffmpeg
+    // is wedged; kill it so the cache can be restarted cleanly.
+    this.cleanup({ clearSnapshot: true, killProcess: true });
+    this.emit("error", e);
+  }
+
+  private startStaleWatchdog(): void {
+    if (this.staleTimeoutMs <= 0) return;
+    const timer = setInterval(() => {
+      if (!this.running || !this.currentSnapshot || this.staleEmitted) return;
+      const age = Date.now() - this.currentSnapshot.timestampMs;
+      if (age > this.staleTimeoutMs) {
+        this.staleEmitted = true;
+        this.emit("stale", { ageMs: age, snapshot: this.currentSnapshot });
+      }
+    }, STALE_CHECK_INTERVAL_MS);
+    timer.unref?.();
+    this.staleTimer = timer;
+  }
+
+  private bindServiceState(): void {
+    const emitter = this.service as unknown as {
+      on?: (event: string, listener: (...args: any[]) => void) => void;
+    };
+    emitter.on?.("state", this.onServiceState);
+  }
+
+  private unbindServiceState(): void {
+    const emitter = this.service as unknown as {
+      removeListener?: (
+        event: string,
+        listener: (...args: any[]) => void,
+      ) => void;
+    };
+    emitter.removeListener?.("state", this.onServiceState);
+  }
+
   private cleanup(options: {
     clearSnapshot: boolean;
     killProcess: boolean;
   }): void {
     this.running = false;
+    this.unbindServiceState();
+
+    if (this.staleTimer) {
+      clearInterval(this.staleTimer);
+      this.staleTimer = null;
+    }
+
     this.subscription?.return?.();
     this.subscription = null;
 
@@ -220,12 +364,26 @@ export class FfmpegSnapshotCache extends EventEmitter {
     this.process = null;
     if (proc) {
       proc.stdin.end();
-      if (options.killProcess) proc.kill();
+      if (options.killProcess) this.killProcess(proc);
     }
 
     this.stdoutBuffer = Buffer.alloc(0);
     this.stderrTail = "";
     if (options.clearSnapshot) this.currentSnapshot = null;
+  }
+
+  private killProcess(proc: FfmpegProcess): void {
+    proc.kill();
+    // Escalate to SIGKILL if ffmpeg ignores the polite signal.
+    const timer = setTimeout(() => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // process already gone
+      }
+    }, this.killTimeoutMs);
+    timer.unref?.();
+    proc.once("exit", () => clearTimeout(timer));
   }
 
   private formatStderrTail(): string {

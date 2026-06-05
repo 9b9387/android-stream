@@ -1,5 +1,6 @@
 import { RawData, WebSocket, WebSocketServer } from "ws";
 import { ScrcpyStreamService } from "../service/scrcpy-stream-service.js";
+import { MediaKind, MediaPacket } from "../service/types.js";
 import { serializeMediaPacket } from "./binary-packet.js";
 import { parseControlJson } from "./control-json.js";
 import {
@@ -10,13 +11,18 @@ import {
   WebSocketBridgeOptions,
 } from "./types.js";
 
+const DEFAULT_MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
+
 export class ScrcpyWebSocketBridge {
   private wss: WebSocketServer;
+  private readonly maxBufferedBytes: number;
 
   constructor(
     private service: ScrcpyStreamService,
     options: WebSocketBridgeOptions = {},
   ) {
+    this.maxBufferedBytes =
+      options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
     this.wss = new WebSocketServer({
       port: options.port,
       server: options.server,
@@ -51,11 +57,27 @@ export class ScrcpyWebSocketBridge {
     try {
       for await (const packet of subscription) {
         if (ws.readyState !== WebSocket.OPEN) break;
+        // Apply backpressure: when the client falls behind, drop droppable
+        // frames instead of letting ws buffer them without bound. Config,
+        // key frames and session packets are kept so the decoder can recover.
+        if (
+          this.maxBufferedBytes > 0 &&
+          ws.bufferedAmount > this.maxBufferedBytes &&
+          this.isDroppable(packet)
+        ) {
+          continue;
+        }
         ws.send(serializeMediaPacket(packet));
       }
     } catch {
       ws.close();
     }
+  }
+
+  private isDroppable(packet: MediaPacket): boolean {
+    return (
+      packet.kind === MediaKind.VIDEO && !packet.config && !packet.keyFrame
+    );
   }
 
   private createInitMessage() {

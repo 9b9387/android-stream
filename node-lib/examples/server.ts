@@ -88,13 +88,17 @@ async function main() {
         return;
       }
 
-      const snapshot = snapshotCache.latest();
-      if (!snapshot) {
+      let snapshot;
+      try {
+        // Wait briefly for the first/next frame instead of returning 404 and
+        // forcing the client into a busy poll loop.
+        snapshot = await snapshotCache.waitForFresh(3000);
+      } catch (err) {
         res.writeHead(
-          404,
+          503,
           screenshotHeaders({ "content-type": "text/plain; charset=utf-8" }),
         );
-        res.end("no screenshot available yet");
+        res.end((err as Error).message || "no screenshot available yet");
         return;
       }
 
@@ -144,6 +148,9 @@ async function main() {
   });
   snapshotCache?.on("error", (err) => {
     console.error(`[snapshot] Error: ${err.message}`);
+  });
+  snapshotCache?.on("stale", ({ ageMs }) => {
+    console.warn(`[snapshot] No new frame for ${ageMs}ms (device may be idle)`);
   });
   snapshotCache?.on("ffmpegLog", (message) => {
     for (const line of message.trim().split(/\r?\n/)) {

@@ -251,21 +251,53 @@ const snapshots = new FfmpegSnapshotCache(service, {
   enabled: true,
   fps: 2,
   quality: 85,
+  // Optional robustness knobs (defaults shown):
+  drainTimeoutMs: 5000, // tear down ffmpeg if stdin stalls this long
+  killTimeoutMs: 2000, // SIGTERM grace before SIGKILL on stop()
+  staleTimeoutMs: 10000, // emit "stale" when no new frame for this long (0 = off)
+  maxStdoutBytes: 16 * 1024 * 1024, // cap on the JPEG reassembly buffer
 });
 
 await service.start();
-snapshots.start();
+snapshots.start(); // must be called after service.start()
 
+// Non-blocking read of the most recent frame (may be null before the first):
 const latest = snapshots.latest();
-if (latest) {
-  // latest.contentType === "image/jpeg"
-  // latest.data is a Buffer containing JPEG bytes.
+
+// Or wait up to N ms for the first/next frame instead of busy-polling 404s:
+try {
+  const shot = await snapshots.waitForFresh(3000);
+  // shot.contentType === "image/jpeg"; shot.data is a JPEG Buffer
+} catch {
+  // no frame within the timeout — surface a 503 / "warming up" to the client
 }
+
+// Observe a stalled stream (device asleep, encoder paused, etc.):
+snapshots.on("stale", ({ ageMs }) => {
+  console.warn(`no new snapshot for ${ageMs}ms`);
+});
 ```
 
 The first implementation supports H.264 input and JPEG output. The configured
 `fps` limits how often ffmpeg emits JPEG frames; ffmpeg still receives the
 continuous H.264 stream so inter-frame decoding remains correct.
+
+### Lifecycle & resource safety
+
+- `FfmpegSnapshotCache` listens to the service state: when the service stops or
+  errors, the ffmpeg process is killed automatically, so it never lingers as an
+  orphan across reconnects. You should still call `snapshots.stop()` explicitly
+  when you tear a session down yourself.
+- `waitForFresh()` resolves immediately if a frame is cached, otherwise it
+  resolves on the next frame or rejects after the timeout — use it in HTTP
+  handlers so a single request never hangs and clients never busy-poll.
+- The WebSocket bridge applies backpressure: a slow client's droppable video
+  frames are dropped (config/keyframe/session packets are preserved) once its
+  outbound buffer exceeds `maxBufferedBytes` (8MiB default), preventing
+  unbounded memory growth. Tune via `new ScrcpyWebSocketBridge(service, { maxBufferedBytes })`.
+
+For multi-device streaming and per-device screenshot HTTP routes, see
+[docs/multi-device-screenshot.md](./docs/multi-device-screenshot.md) (Web integration guide, 中文).
 
 ## Next.js And Electron Usage
 

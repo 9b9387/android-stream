@@ -29,8 +29,9 @@ export interface ScrcpyBackendOptions {
   serverJarPath?: string;
 }
 
-export interface NormalizedScrcpyBackendOptions
-  extends Required<Omit<ScrcpyBackendOptions, "serverJarPath" | "videoEncoder">> {
+export interface NormalizedScrcpyBackendOptions extends Required<
+  Omit<ScrcpyBackendOptions, "serverJarPath" | "videoEncoder">
+> {
   protocol: ScrcpyProtocol;
   socketName: string;
   serverJarPath: string;

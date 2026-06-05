@@ -6,6 +6,7 @@ import {
   extractJpegFrames,
   FfmpegSnapshotCache,
 } from "../src/snapshot/ffmpeg-snapshot-cache.js";
+import { StreamState } from "../src/service/types.js";
 
 describe("extractJpegFrames", () => {
   test("extracts complete JPEG frames across arbitrary chunks", () => {
@@ -168,6 +169,57 @@ describe("FfmpegSnapshotCache", () => {
     cache.stop();
   });
 
+  test("stops ffmpeg when the service transitions to STOPPED", () => {
+    const service = new EventEmitter() as EventEmitter & {
+      subscribe: () => AsyncIterableIterator<any>;
+      currentMeta: null;
+    };
+    service.subscribe = async function* () {};
+    service.currentMeta = null;
+    const proc = fakeProcess();
+    const cache = new FfmpegSnapshotCache(service as any, {
+      enabled: true,
+      spawnProcess: () => proc,
+    });
+
+    cache.start();
+    expect(proc.killCount).toBe(0);
+    service.emit("state", StreamState.STOPPED);
+    expect(proc.killCount).toBeGreaterThan(0);
+    // listener must be removed so a later transition does not re-trigger
+    service.emit("state", StreamState.ERROR);
+  });
+
+  test("waitForFresh resolves with the next snapshot", async () => {
+    const service = { subscribe: async function* () {} };
+    const proc = fakeProcess();
+    const cache = new FfmpegSnapshotCache(service as any, {
+      enabled: true,
+      spawnProcess: () => proc,
+    });
+
+    cache.start();
+    const pending = cache.waitForFresh(1000);
+    const jpeg = Buffer.from([0xff, 0xd8, 0x10, 0x20, 0xff, 0xd9]);
+    proc.stdout.write(jpeg);
+
+    const shot = await pending;
+    expect(shot.data).toEqual(jpeg);
+    cache.stop();
+  });
+
+  test("waitForFresh rejects after the timeout when no frame arrives", async () => {
+    const service = { subscribe: async function* () {} };
+    const cache = new FfmpegSnapshotCache(service as any, {
+      enabled: true,
+      spawnProcess: () => fakeProcess(),
+    });
+
+    cache.start();
+    await expect(cache.waitForFresh(20)).rejects.toThrow(/not available/);
+    cache.stop();
+  });
+
   test("rejects invalid fps and quality options", () => {
     const service = {
       subscribe: async function* () {},
@@ -190,11 +242,16 @@ function fakeProcess() {
     stdin: PassThrough;
     stdout: PassThrough;
     stderr: PassThrough;
-    kill: () => boolean;
+    kill: (signal?: string) => boolean;
+    killCount: number;
   };
   emitter.stdin = new PassThrough();
   emitter.stdout = new PassThrough();
   emitter.stderr = new PassThrough();
-  emitter.kill = () => true;
+  emitter.killCount = 0;
+  emitter.kill = () => {
+    emitter.killCount += 1;
+    return true;
+  };
   return emitter;
 }

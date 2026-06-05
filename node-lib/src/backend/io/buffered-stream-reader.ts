@@ -7,14 +7,32 @@ interface ReadWaiter {
   reject: (err: Error) => void;
 }
 
+// Safety cap on the reassembly buffer. A single scrcpy frame is well under
+// this; exceeding it means the stream is desynchronized or a bogus frame size
+// was read, so we fail fast instead of growing memory without bound.
+const DEFAULT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+
 export class BufferedStreamReader {
   private buffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   private waiters: ReadWaiter[] = [];
   private ended = false;
 
-  constructor(stream: net.Socket) {
+  constructor(
+    stream: net.Socket,
+    private readonly maxBufferBytes: number = DEFAULT_MAX_BUFFER_BYTES,
+  ) {
     stream.on("data", (chunk: Uint8Array) => {
       this.buffer = concatBytes([this.buffer, chunk as Uint8Array]);
+      if (this.buffer.byteLength > this.maxBufferBytes) {
+        this.ended = true;
+        this.rejectAll(
+          new Error(
+            `stream reader buffer exceeded ${this.maxBufferBytes} bytes; aborting`,
+          ),
+        );
+        stream.destroy();
+        return;
+      }
       this.checkWaiters();
     });
     stream.on("error", (err) => {

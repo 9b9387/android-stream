@@ -1,4 +1,7 @@
-import { ScrcpyStreamService, StreamState } from "@9b9387/android-stream-scrcpy";
+import {
+  ScrcpyStreamService,
+  StreamState,
+} from "@9b9387/android-stream-scrcpy";
 
 async function main() {
   const deviceSerial =
